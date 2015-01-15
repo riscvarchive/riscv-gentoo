@@ -1,0 +1,5 @@
+# For some reason, Python doesn't appear to without ncurses[unicode]
+sys-libs/ncurses unicode
+
+# It appears this is necessary to get busybox to work?
+sys-apps/busybox mdev
