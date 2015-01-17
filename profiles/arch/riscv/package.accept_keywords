@@ -26,12 +26,10 @@ dev-lang/python amd64
 dev-lang/python-exec amd64
 dev-libs/expat amd64
 dev-libs/gmp amd64
-dev-libs/libffi amd64
 dev-libs/libpcre amd64
 dev-libs/libpipeline amd64
 dev-libs/mpc amd64
 dev-libs/mpfr amd64
-dev-libs/openssl amd64
 dev-libs/popt amd64
 dev-perl/libintl-perl amd64
 dev-perl/Text-Unidecode amd64
