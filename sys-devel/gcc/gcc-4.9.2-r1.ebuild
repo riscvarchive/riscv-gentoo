@@ -42,6 +42,7 @@ src_prepare() {
 	fi
 
         epatch "${FILESDIR}/${P}-riscv-${PR}.patch"
+        epatch "${FILESDIR}/${P}-riscv-${PR}-uapi.patch"
 
 	toolchain_src_prepare
 
