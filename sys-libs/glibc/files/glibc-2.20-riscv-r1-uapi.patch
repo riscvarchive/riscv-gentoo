@@ -1,0 +1,21 @@
+commit c00b44bfcb2510e32c4e508fca5ef343d5a71212
+Author: Palmer Dabbelt <palmer.dabbelt@eecs.berkeley.edu>
+Date:   Tue Feb 3 10:54:22 2015 -0800
+
+    Include <asm/ptrace.h> from <sys/user.h>
+    
+    x86 puts "struct user_regs_struct" in <sys/user.h>, but that requires
+    duplicating code between Linux and glibc.  Even though it's just an
+    ABI-breaking structure, I don't want to do that.
+    
+    This causes <sys/user.h> to end up defining "struct user_regs_struct"
+    which helps with compatibility.
+
+diff --git a/glibc/sysdeps/unix/sysv/linux/riscv/sys/user.h b/glibc/sysdeps/unix/sysv/linux/riscv/sys/user.h
+index c871f1a..faf3079 100644
+--- a/glibc/sysdeps/unix/sysv/linux/riscv/sys/user.h
++++ b/glibc/sysdeps/unix/sysv/linux/riscv/sys/user.h
+@@ -1 +1,2 @@
+-/* This file is not needed, but in practice gdb might try to include it.  */
++/* x86 puts "struct user_regs_struct" in here, this is just a shim. */
++#include <asm/ptrace.h>
