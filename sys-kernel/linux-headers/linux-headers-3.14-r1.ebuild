@@ -28,6 +28,7 @@ src_unpack() {
 
 src_prepare() {
         patch -p1 < "${FILESDIR}/${P}-riscv-${PR}.patch" || die "RISC-V"
+        epatch "${FILESDIR}/${P}-riscv-${PR}-uapi.patch"
 	[[ -n ${PATCH_VER} ]] && EPATCH_SUFFIX="patch" epatch "${WORKDIR}"/${PV}
 }
 

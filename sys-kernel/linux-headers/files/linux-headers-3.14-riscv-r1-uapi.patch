@@ -1,0 +1,567 @@
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index 0efc5a4..7b10c8d 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -19,6 +19,7 @@ config RISCV
+ 	select RV_ATOMIC if SMP
+ 	select RV_SYSRISCV_ATOMIC if !RV_ATOMIC
+ 	select SYSCTL_EXCEPTION_TRACE
++	select HAVE_ARCH_TRACEHOOK
+ 
+ config MMU
+ 	def_bool y
+diff --git a/arch/riscv/include/asm/Kbuild b/arch/riscv/include/asm/Kbuild
+index eebbbfc..eb9b3d2 100644
+--- a/arch/riscv/include/asm/Kbuild
++++ b/arch/riscv/include/asm/Kbuild
+@@ -57,6 +57,5 @@ generic-y += types.h
+ generic-y += ucontext.h
+ generic-y += unaligned.h
+ generic-y += user.h
+-generic-y += vga.h
+ generic-y += vmlinux.lds.h
+ generic-y += xor.h
+diff --git a/arch/riscv/include/asm/elf.h b/arch/riscv/include/asm/elf.h
+index 813e16d..880b269 100644
+--- a/arch/riscv/include/asm/elf.h
++++ b/arch/riscv/include/asm/elf.h
+@@ -1,80 +1,8 @@
+ #ifndef _ASM_RISCV_ELF_H
+ #define _ASM_RISCV_ELF_H
+ 
+-#include <asm/ptrace.h>
+-#include <asm/auxvec.h>
+-
+-/* ELF register definitions */
+-typedef unsigned long elf_greg_t;
+-
+-#define ELF_NGREG (sizeof(struct pt_regs) / sizeof(elf_greg_t))
+-typedef elf_greg_t elf_gregset_t[ELF_NGREG];
+-
+-#define ELF_NFPREG	0
+-typedef double elf_fpreg_t;
+-typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
+-
+-
+-/*
+- * RISC-V relocation types
+- */
+-
+-/* Relocation types used by the dynamic linker */
+-#define R_RISCV_NONE		0
+-#define R_RISCV_32		1
+-#define R_RISCV_64		2
+-#define R_RISCV_RELATIVE	3
+-#define R_RISCV_COPY		4
+-#define R_RISCV_JUMP_SLOT	5
+-#define R_RISCV_TLS_DTPMOD32	6
+-#define R_RISCV_TLS_DTPMOD64	7
+-#define R_RISCV_TLS_DTPREL32	8
+-#define R_RISCV_TLS_DTPREL64	9
+-#define R_RISCV_TLS_TPREL32	10
+-#define R_RISCV_TLS_TPREL64	11
+-/* Relocation types not used by the dynamic linker */
+-#define R_RISCV_BRANCH		16
+-#define R_RISCV_JAL		17
+-#define R_RISCV_CALL		18
+-#define R_RISCV_CALL_PLT	19
+-#define R_RISCV_GOT_HI20	20
+-#define R_RISCV_TLS_GOT_HI20	21
+-#define R_RISCV_TLS_GD_HI20	22
+-#define R_RISCV_PCREL_HI20	23
+-#define R_RISCV_PCREL_LO12_I	24
+-#define R_RISCV_PCREL_LO12_S	25
+-#define R_RISCV_HI20		26
+-#define R_RISCV_LO12_I		27
+-#define R_RISCV_LO12_S		28
+-#define R_RISCV_TPREL_HI20	29
+-#define R_RISCV_TPREL_LO12_I	30
+-#define R_RISCV_TPREL_LO12_S	31
+-#define R_RISCV_TPREL_ADD	32
+-#define R_RISCV_ADD8		33
+-#define R_RISCV_ADD16		34
+-#define R_RISCV_ADD32		35
+-#define R_RISCV_ADD64		36
+-#define R_RISCV_SUB8		37
+-#define R_RISCV_SUB16		38
+-#define R_RISCV_SUB32		39
+-#define R_RISCV_SUB64		40
+-#define R_RISCV_GNU_VTINHERIT	41
+-#define R_RISCV_GNU_VTENTRY	42
+-#define R_RISCV_ALIGN		43
+-
+-/* TODO: Move definition into include/uapi/linux/elf-em.h */
+-#define EM_RISCV	0xF3
+-
+-/*
+- * These are used to set parameters in the core dumps.
+- */
+-#define ELF_ARCH	EM_RISCV
+-#ifdef CONFIG_64BIT
+-#define ELF_CLASS	ELFCLASS64
+-#else
+-#define ELF_CLASS	ELFCLASS32
+-#endif
+-#define ELF_DATA	ELFDATA2MSB
++#include <uapi/asm/elf.h>
++#include <uapi/asm/auxvec.h>
+ 
+ /*
+  * This is used to ensure we don't load something for the wrong architecture.
+diff --git a/arch/riscv/include/asm/mmu.h b/arch/riscv/include/asm/mmu.h
+index 6a03af7..fa1fc89 100644
+--- a/arch/riscv/include/asm/mmu.h
++++ b/arch/riscv/include/asm/mmu.h
+@@ -9,4 +9,6 @@ typedef struct {
+ 
+ #endif /* __ASSEMBLY__ */
+ 
++#include <asm-generic/memory_model.h>
++
+ #endif /* _ASM_RISCV_MMU_H */
+diff --git a/arch/riscv/include/asm/ptrace.h b/arch/riscv/include/asm/ptrace.h
+index 044c498..37ed741 100644
+--- a/arch/riscv/include/asm/ptrace.h
++++ b/arch/riscv/include/asm/ptrace.h
+@@ -1,6 +1,7 @@
+ #ifndef _ASM_RISCV_PTRACE_H
+ #define _ASM_RISCV_PTRACE_H
+ 
++#include <uapi/asm/ptrace.h>
+ #include <asm/csr.h>
+ 
+ #ifndef __ASSEMBLY__
+diff --git a/arch/riscv/include/asm/thread_info.h b/arch/riscv/include/asm/thread_info.h
+index cc91e0c..41c361b 100644
+--- a/arch/riscv/include/asm/thread_info.h
++++ b/arch/riscv/include/asm/thread_info.h
+@@ -80,6 +80,7 @@ static inline struct thread_info *current_thread_info(void)
+ #define TIF_NEED_RESCHED	3	/* rescheduling necessary */
+ #define TIF_RESTORE_SIGMASK	4	/* restore signal mask in do_signal() */
+ #define TIF_MEMDIE		5	/* is terminating due to OOM killer */
++#define TIF_SYSCALL_TRACEPOINT  6       /* syscall tracepoint instrumentation */
+ 
+ #define _TIF_SYSCALL_TRACE	(1 << TIF_SYSCALL_TRACE)
+ #define _TIF_NOTIFY_RESUME	(1 << TIF_NOTIFY_RESUME)
+diff --git a/arch/riscv/include/asm/unistd.h b/arch/riscv/include/asm/unistd.h
+deleted file mode 100644
+index e8362c5..0000000
+--- a/arch/riscv/include/asm/unistd.h
++++ /dev/null
+@@ -1,3 +0,0 @@
+-#define __ARCH_HAVE_MMU
+-#define __ARCH_WANT_SYS_CLONE
+-#include <uapi/asm/unistd.h>
+diff --git a/arch/riscv/include/uapi/asm/Kbuild b/arch/riscv/include/uapi/asm/Kbuild
+index 952fbc8..3176395 100644
+--- a/arch/riscv/include/uapi/asm/Kbuild
++++ b/arch/riscv/include/uapi/asm/Kbuild
+@@ -1,9 +1,9 @@
+ # UAPI Header export list
+ include include/uapi/asm-generic/Kbuild.asm
+ 
+-header-y += auxvec.h
+ header-y += bitsperlong.h
+ header-y += byteorder.h
++header-y += elf.h
+ header-y += ptrace.h
+ header-y += sigcontext.h
+ header-y += unistd.h
+diff --git a/arch/riscv/include/uapi/asm/elf.h b/arch/riscv/include/uapi/asm/elf.h
+new file mode 100644
+index 0000000..772924c
+--- /dev/null
++++ b/arch/riscv/include/uapi/asm/elf.h
+@@ -0,0 +1,75 @@
++#ifndef _UAPI_ASM_RISCV_ELF_H
++#define _UAPI_ASM_RISCV_ELF_H
++
++#include <asm/ptrace.h>
++
++/* ELF register definitions */
++typedef unsigned long elf_greg_t;
++
++#define ELF_NGREG (sizeof(struct user_regs_struct) / sizeof(elf_greg_t))
++typedef elf_greg_t elf_gregset_t[ELF_NGREG];
++
++#define ELF_NFPREG	0
++typedef double elf_fpreg_t;
++typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
++
++/* RISC-V relocation types */
++#define R_RISCV_NONE		0
++#define R_RISCV_32		1
++#define R_RISCV_64		2
++#define R_RISCV_RELATIVE	3
++#define R_RISCV_COPY		4
++#define R_RISCV_JUMP_SLOT	5
++#define R_RISCV_TLS_DTPMOD32	6
++#define R_RISCV_TLS_DTPMOD64	7
++#define R_RISCV_TLS_DTPREL32	8
++#define R_RISCV_TLS_DTPREL64	9
++#define R_RISCV_TLS_TPREL32	10
++#define R_RISCV_TLS_TPREL64	11
++
++#define R_RISCV_BRANCH		16
++#define R_RISCV_JAL		17
++#define R_RISCV_CALL		18
++#define R_RISCV_CALL_PLT	19
++#define R_RISCV_GOT_HI20	20
++#define R_RISCV_TLS_GOT_HI20	21
++#define R_RISCV_TLS_GD_HI20	22
++#define R_RISCV_PCREL_HI20	23
++#define R_RISCV_PCREL_LO12_I	24
++#define R_RISCV_PCREL_LO12_S	25
++#define R_RISCV_HI20		26
++#define R_RISCV_LO12_I		27
++#define R_RISCV_LO12_S		28
++#define R_RISCV_TPREL_HI20	29
++#define R_RISCV_TPREL_LO12_I	30
++#define R_RISCV_TPREL_LO12_S	31
++#define R_RISCV_TPREL_ADD	32
++#define R_RISCV_ADD8		33
++#define R_RISCV_ADD16		34
++#define R_RISCV_ADD32		35
++#define R_RISCV_ADD64		36
++#define R_RISCV_SUB8		37
++#define R_RISCV_SUB16		38
++#define R_RISCV_SUB32		39
++#define R_RISCV_SUB64		40
++#define R_RISCV_GNU_VTINHERIT	41
++#define R_RISCV_GNU_VTENTRY	42
++
++/* TODO: Move definition into include/uapi/linux/elf-em.h */
++#define EM_RISCV	243
++
++/*
++ * These are used to set parameters in the core dumps.
++ */
++#define ELF_ARCH	EM_RISCV
++#define ELF_CLASS	ELFCLASS64
++
++#if defined(__RISCVEL__)
++#define ELF_DATA	ELFDATA2LSB
++#elif defined(__RISCVEB__)
++#define ELF_DATA	ELFDATA2MSB
++#else
++#error "Unknown endianness"
++#endif
++
++#endif /* _UAPI_ASM_RISCV_ELF_H */
+diff --git a/arch/riscv/include/uapi/asm/ptrace.h b/arch/riscv/include/uapi/asm/ptrace.h
+index 346ae1f..d348e2d 100644
+--- a/arch/riscv/include/uapi/asm/ptrace.h
++++ b/arch/riscv/include/uapi/asm/ptrace.h
+@@ -1,19 +1,52 @@
+ #ifndef _UAPI_ASM_RISCV_PTRACE_H
+ #define _UAPI_ASM_RISCV_PTRACE_H
+ 
+-/* Mirror pt_regs from ptrace.h */
++#ifndef __ASSEMBLY__
+ 
+-typedef struct user_regs_struct {
++/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
++#define PTRACE_GETREGS            12
++#define PTRACE_SETREGS            13
++
++/* User-mode register state for core dumps, ptrace, sigcontext
++ *
++ * This decouples struct pt_regs from the userspace ABI.
++ * struct user_regs_struct must form a prefix of struct pt_regs.
++ */
++struct user_regs_struct {
+ 	unsigned long pc;
+ 	unsigned long ra;
+-	unsigned long s[12];
+ 	unsigned long sp;
+-	unsigned long tp;
+-	unsigned long v[2];
+-	unsigned long a[8];
+-	unsigned long t[5];
+ 	unsigned long gp;
+-	unsigned long status;
+-} user_regs_struct;
++	unsigned long tp;
++	unsigned long t0;
++	unsigned long t1;
++	unsigned long t2;
++	unsigned long s0;
++	unsigned long s1;
++	unsigned long a0;
++	unsigned long a1;
++	unsigned long a2;
++	unsigned long a3;
++	unsigned long a4;
++	unsigned long a5;
++	unsigned long a6;
++	unsigned long a7;
++	unsigned long s2;
++	unsigned long s3;
++	unsigned long s4;
++	unsigned long s5;
++	unsigned long s6;
++	unsigned long s7;
++	unsigned long s8;
++	unsigned long s9;
++	unsigned long s10;
++	unsigned long s11;
++	unsigned long t3;
++	unsigned long t4;
++	unsigned long t5;
++	unsigned long t6;
++};
++
++#endif /* !__ASSEMBLY__ */
+ 
+ #endif /* _UAPI_ASM_RISCV_PTRACE_H */
+diff --git a/arch/riscv/include/uapi/asm/sigcontext.h b/arch/riscv/include/uapi/asm/sigcontext.h
+index 8eb489f..3dd7224 100644
+--- a/arch/riscv/include/uapi/asm/sigcontext.h
++++ b/arch/riscv/include/uapi/asm/sigcontext.h
+@@ -1,43 +1,15 @@
+ #ifndef _UAPI_ASM_RISCV_SIGCONTEXT_H
+ #define _UAPI_ASM_RISCV_SIGCONTEXT_H
+ 
+-/* This struct is saved by setup_frame in signal.c, to keep the current
+- * context while a signal handler is executed. It is restored by sys_sigreturn.
+- */
++#include <asm/ptrace.h>
+ 
++/* Signal context structure
++ *
++ * This contains the context saved before a signal handler is invoked;
++ * it is restored by sys_sigreturn / sys_rt_sigreturn.
++ */
+ struct sigcontext {
+-	unsigned long epc;
+-	unsigned long ra;
+-	unsigned long sp;
+-	unsigned long gp;
+-	unsigned long tp;
+-	unsigned long t0;
+-	unsigned long t1;
+-	unsigned long t2;
+-	unsigned long s0;
+-	unsigned long s1;
+-	unsigned long a0;
+-	unsigned long a1;
+-	unsigned long a2;
+-	unsigned long a3;
+-	unsigned long a4;
+-	unsigned long a5;
+-	unsigned long a6;
+-	unsigned long a7;
+-	unsigned long s2;
+-	unsigned long s3;
+-	unsigned long s4;
+-	unsigned long s5;
+-	unsigned long s6;
+-	unsigned long s7;
+-	unsigned long s8;
+-	unsigned long s9;
+-	unsigned long s10;
+-	unsigned long s11;
+-	unsigned long t3;
+-	unsigned long t4;
+-	unsigned long t5;
+-	unsigned long t6;
++	struct user_regs_struct sc_regs;
+ };
+ 
+ #endif /* _UAPI_ASM_RISCV_SIGCONTEXT_H */
+diff --git a/arch/riscv/include/uapi/asm/unistd.h b/arch/riscv/include/uapi/asm/unistd.h
+index 2ccd451..883c68b 100644
+--- a/arch/riscv/include/uapi/asm/unistd.h
++++ b/arch/riscv/include/uapi/asm/unistd.h
+@@ -1,7 +1,18 @@
++#define __ARCH_HAVE_MMU
++
++#define __ARCH_WANT_SYSCALL_NO_AT
++#define __ARCH_WANT_SYSCALL_DEPRECATED
++#define __ARCH_WANT_SYSCALL_OFF_T
++#define __ARCH_WANT_SYSCALL_NO_FLAGS
++#define __ARCH_WANT_SYS_EXECVE
++#define __ARCH_WANT_SYS_CLONE
++#define __ARCH_WANT_SYS_VFORK
++#define __ARCH_WANT_SYS_FORK
++
+ #include <asm-generic/unistd.h>
+ 
+ #define __NR_sysriscv  __NR_arch_specific_syscall
+-#ifndef __riscv_atomic
++#ifdef CONFIG_RV_SYSRISCV_ATOMIC
+ __SYSCALL(__NR_sysriscv, sys_sysriscv)
+ #endif
+ 
+diff --git a/arch/riscv/kernel/entry.S b/arch/riscv/kernel/entry.S
+index 2e96806..5ecb495 100644
+--- a/arch/riscv/kernel/entry.S
++++ b/arch/riscv/kernel/entry.S
+@@ -166,6 +166,18 @@ handle_syscall:
+ 	REG_S s2, PT_EPC(sp)
+ 	/* System calls run with interrupts enabled */
+ 	csrs status, SR_EI
++	/* Trace syscalls, but only if requested by the user. */
++	move a0, sp
++	call do_syscall_trace_enter
++	REG_L a0, PT_A0(sp)
++	REG_L a1, PT_A1(sp)
++	REG_L a2, PT_A2(sp)
++	REG_L a3, PT_A3(sp)
++	REG_L a4, PT_A4(sp)
++	REG_L a5, PT_A5(sp)
++	REG_L a6, PT_A6(sp)
++	REG_L a7, PT_A7(sp)
++	/* Check to make sure we don't jump to a bogus syscall number. */
+ 	li t0, __NR_syscalls
+ 	la s0, sys_ni_syscall
+ 	/* Syscall number held in a7 */
+@@ -177,9 +189,13 @@ handle_syscall:
+ 1:
+ 	jalr s0
+ 
++
+ ret_from_syscall:
+ 	/* Set user a0 to kernel a0 */
+ 	REG_S a0, PT_A0(sp)
++	/* Trace syscalls, but only if requested by the user. */
++	move a0, sp
++	call do_syscall_trace_exit
+ 
+ ret_from_exception:
+ 	REG_L s0, PT_STATUS(sp)
+diff --git a/arch/riscv/kernel/ptrace.c b/arch/riscv/kernel/ptrace.c
+index 56828c4..c47add3 100644
+--- a/arch/riscv/kernel/ptrace.c
++++ b/arch/riscv/kernel/ptrace.c
+@@ -1,17 +1,61 @@
++#include <asm/ptrace.h>
++#include <asm/syscall.h>
++#include <asm/thread_info.h>
+ #include <linux/ptrace.h>
+ #include <linux/elf.h>
+ #include <linux/regset.h>
++#include <linux/tracehook.h>
++#include <trace/events/syscalls.h>
+ 
+-static const struct user_regset_view user_riscv_native_view = {
+-	.name = "riscv",
+-	.e_machine = EM_RISCV,
+-	.regsets = NULL,
+-	.n = 0,
++static int gpr_get(struct task_struct *target,
++	const struct user_regset *regset, unsigned int pos,
++	unsigned int count, void *kbuf, void __user *ubuf)
++{
++	struct user_regs_struct uregs;
++	struct pt_regs *regs = task_pt_regs(target);
++
++	uregs.a7 = regs->a7;
++	__copy_to_user(ubuf, &uregs, sizeof(regset));
++	return 0;
++
++#if 0
++	/* NOTE: Ensure that sensitive CSR contents are not exposed */
++	return user_regset_copyout(&pos, &count, &kbuf, &ubuf, regs, 0, -1);
++#endif
++}
++
++static int gpr_set(struct task_struct *target,
++	const struct user_regset *regset, unsigned int pos,
++	unsigned int count, const void *kbuf, const void __user *ubuf)
++{
++	struct pt_regs *regs = task_pt_regs(target);
++	/* NOTE: Ensure that entries for privileged CSRs are not overwritten */
++	return user_regset_copyin(&pos, &count, &kbuf, &ubuf, regs, 0, -1);
++}
++
++enum riscv_regset {
++	REGSET_GPR,
++};
++
++static const struct user_regset riscv_regsets[] = {
++	[REGSET_GPR] = {
++		.core_note_type = NT_PRSTATUS,
++		.n = sizeof(struct user_regs_struct) / sizeof(unsigned long),
++		.size = sizeof(unsigned long),
++		.align = sizeof(unsigned long),
++		.get = gpr_get,
++		.set = gpr_set
++	},
++};
++
++static const struct user_regset_view user_riscv_view = {
++	.name = "riscv", .e_machine = EM_RISCV,
++	.regsets = riscv_regsets, .n = ARRAY_SIZE(riscv_regsets)
+ };
+ 
+ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
+ {
+-	return &user_riscv_native_view;
++	return &user_riscv_view;
+ }
+ 
+ void ptrace_disable(struct task_struct *child)
+@@ -21,5 +65,39 @@ void ptrace_disable(struct task_struct *child)
+ long arch_ptrace(struct task_struct *child, long request,
+                  unsigned long addr, unsigned long data)
+ {
+-	return 0;
++	long ret = -EIO;
++
++	switch (request) {
++	default:
++		ret = ptrace_request(child, request, addr, data);
++		break;
++	}
++
++	return ret;
++}
++
++/* Allows PTRACE_SYSCALL to work.  These are called from entry.S in
++ * {handle,ret_from}_syscall. */
++void do_syscall_trace_enter(struct pt_regs *regs)
++{
++	if (test_thread_flag(TIF_SYSCALL_TRACE)) {
++		if (tracehook_report_syscall_entry(regs))
++			syscall_set_nr(current, regs, -1);
++	}
++
++#ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
++	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT))
++		trace_sys_enter(regs, syscall_get_nr(current, regs));
++#endif
++}
++
++void do_syscall_trace_exit(struct pt_regs *regs)
++{
++	if (test_thread_flag(TIF_SYSCALL_TRACE))
++		tracehook_report_syscall_exit(regs, 0);
++
++#ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
++	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT))
++		trace_sys_exit(regs, regs->regs[0]);
++#endif
+ }
+diff --git a/arch/riscv/kernel/signal.c b/arch/riscv/kernel/signal.c
+index 3cb1378..87c2a25 100644
+--- a/arch/riscv/kernel/signal.c
++++ b/arch/riscv/kernel/signal.c
+@@ -19,7 +19,7 @@ static long restore_sigcontext(struct pt_regs *regs,
+ 	struct sigcontext __user *sc)
+ {
+ 	/* sigcontext is laid out the same as the start of pt_regs */
+-	return __copy_from_user(regs, sc, sizeof(*sc));
++	return __copy_from_user(regs, &sc->sc_regs, sizeof(sc->sc_regs));
+ }
+ 
+ SYSCALL_DEFINE0(rt_sigreturn)
+@@ -66,7 +66,7 @@ static long setup_sigcontext(struct sigcontext __user *sc,
+ 	struct pt_regs *regs)
+ {
+ 	/* sigcontext is laid out the same as the start of pt_regs */
+-	return __copy_to_user(sc, regs, sizeof(*sc));
++	return __copy_to_user(&sc->sc_regs, regs, sizeof(sc->sc_regs));
+ }
+ 
+ static inline void __user *get_sigframe(struct ksignal *ksig,
