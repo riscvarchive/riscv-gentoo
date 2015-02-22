@@ -38,7 +38,6 @@ eblit-glibc-src_prepare() {
 	fi
 
         epatch "${FILESDIR}/${P}-riscv-${PR}.patch"
-        epatch "${FILESDIR}/${P}-riscv-${PR}-uapi.patch"
 
 	epatch_user
 
