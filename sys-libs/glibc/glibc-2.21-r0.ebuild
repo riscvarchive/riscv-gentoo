@@ -1,7 +1,7 @@
-# Copyright 1999-2014 Gentoo Foundation
+# Copyright 1999-2015 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# gentoo-x86: sys-libs/glibc-2.20-r1
-# riscv-gnu-toolchain: f0addb7a8ce29ff2f7fd7c15942380208a513cd4
+# gentoo-x86: sys-libs/glibc-2.21
+# riscv-gnu-toolchain: 8bea22b08bd99151f68514c03cc9e8df62faa852
 
 EAPI="4"
 
@@ -28,7 +28,7 @@ case ${PV} in
 	;;
 esac
 GCC_BOOTSTRAP_VER="4.7.3-r1"
-PATCH_VER="3"                                  # Gentoo patchset
+PATCH_VER="2"                                  # Gentoo patchset
 : ${NPTL_KERN_VER:="2.6.32"}                   # min kernel version nptl requires
 
 IUSE="debug gd hardened multilib nscd selinux systemtap profile suid vanilla crosscompile_opts_headers-only"
@@ -93,7 +93,7 @@ upstream_uris() {
 	echo mirror://gnu/glibc/$1 ftp://sourceware.org/pub/glibc/{releases,snapshots}/$1 mirror://gentoo/$1
 }
 gentoo_uris() {
-	local devspace="HTTP~vapier/dist/URI HTTP~azarah/glibc/URI HTTP~blueness/glibc/URI"
+	local devspace="HTTP~vapier/dist/URI HTTP~azarah/glibc/URI"
 	devspace=${devspace//HTTP/http://dev.gentoo.org/}
 	echo mirror://gentoo/$1 ${devspace//URI/$1}
 }
