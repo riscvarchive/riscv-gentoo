@@ -7,6 +7,6 @@
 ELF2FLT_VER=""
 inherit toolchain-binutils
 
-KEYWORDS="riscv"
+KEYWORDS="~riscv"
 
 PATCHES=("${FILESDIR}/${P}-riscv-${PR}.patch")
