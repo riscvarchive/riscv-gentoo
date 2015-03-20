@@ -14,7 +14,7 @@ PATCH_VER="1"
 SRC_URI="mirror://gentoo/gentoo-headers-base-${PV}.tar.xz
 	${PATCH_VER:+mirror://gentoo/gentoo-headers-${PV}-${PATCH_VER}.tar.xz}"
 
-KEYWORDS="~riscv"
+KEYWORDS="-riscv"
 
 DEPEND="app-arch/xz-utils
 	dev-lang/perl"

@@ -23,7 +23,7 @@ SSP_UCLIBC_STABLE="x86 amd64 mips ppc ppc64 arm"
 
 inherit eutils toolchain
 
-KEYWORDS="~riscv"
+KEYWORDS="-riscv"
 
 RDEPEND=""
 DEPEND="${RDEPEND}
