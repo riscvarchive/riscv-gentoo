@@ -10,3 +10,7 @@ LICENSE="BSD"
 SLOT="0/${PV}"
 KEYWORDS="amd64"
 IUSE=""
+
+src_prepare() {
+        epatch "${FILESDIR}/${P}-destdir.patch"
+}
