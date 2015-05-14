@@ -14,6 +14,7 @@ app-arch/gzip amd64
 app-arch/tar amd64
 app-arch/xz-utils amd64
 app-editors/nano amd64
+app-eselect/eselect-python amd64
 app-misc/ca-certificates amd64
 app-misc/editor-wrapper amd64
 app-misc/mime-types amd64
