@@ -105,3 +105,7 @@ virtual/perl-File-Temp amd64
 virtual/service-manager amd64
 virtual/shadow amd64
 virtual/ssh amd64
+
+# @system packages that won't build with RISC-V tools because they're
+# newer than Gentoo's tools.
+=sys-libs/ncurses-5.9-r4 **
