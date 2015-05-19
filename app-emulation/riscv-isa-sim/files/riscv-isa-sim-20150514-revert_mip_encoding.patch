@@ -1,0 +1,38 @@
+commit bdb21adf7369f3802e6dae7dc0d8b57050673ff3
+Author: Palmer Dabbelt <palmer.dabbelt@eecs.berkeley.edu>
+Date:   Mon May 18 21:49:34 2015 -0700
+
+    Revert "Fix VM, MIP encoding"
+    
+    This reverts commit 75207d80bd3ed11997d3df56048cc3edf09cc96a.
+
+diff --git a/riscv/encoding.h b/riscv/encoding.h
+index 1fcfaea149a2..3854d82b1c6e 100644
+--- a/riscv/encoding.h
++++ b/riscv/encoding.h
+@@ -31,9 +31,9 @@
+ #define MIP_SSIP            0x00000002
+ #define MIP_HSIP            0x00000004
+ #define MIP_MSIP            0x00000008
+-#define MIP_STIP            0x00000020
+-#define MIP_HTIP            0x00000040
+-#define MIP_MTIP            0x00000080
++#define MIP_STIP            0x00000200
++#define MIP_HTIP            0x00000400
++#define MIP_MTIP            0x00000800
+ 
+ #define SIP_SSIP MIP_SSIP
+ #define SIP_STIP MIP_STIP
+@@ -46,9 +46,9 @@
+ #define VM_MBARE 0
+ #define VM_MBB   1
+ #define VM_MBBID 2
+-#define VM_SV32  8
+-#define VM_SV39  9
+-#define VM_SV48  10
++#define VM_SV32  4
++#define VM_SV39  5
++#define VM_SV48  6
+ 
+ #define UA_RV32  0
+ #define UA_RV64  4

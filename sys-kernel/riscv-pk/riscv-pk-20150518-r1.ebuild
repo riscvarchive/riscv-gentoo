@@ -4,7 +4,7 @@ inherit eutils autotools git-r3
 DESCRIPTION="RISC-V proxy kernel"
 HOMEPAGE="http://riscv.org/download.html#tab_pk"
 EGIT_REPO_URI="git://github.com/riscv/riscv-pk"
-EGIT_COMMIT="3f9b5d7ab80d11eb11739d9a02b4d0b66ace058b"
+EGIT_COMMIT="b2251a985c46fb0399d154557937cd5535f6f1af"
 
 LICENSE="BSD"
 SLOT="0/${PV}"
@@ -12,6 +12,10 @@ KEYWORDS="riscv"
 IUSE=""
 
 DEPEND=""
+
+src_prepare() {
+        epatch "${FILESDIR}"/${P}-revert_mip_encoding.patch
+}
 
 src_configure() {
         mkdir build
