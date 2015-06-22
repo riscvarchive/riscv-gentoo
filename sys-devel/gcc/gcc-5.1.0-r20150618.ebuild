@@ -1,7 +1,7 @@
-# Copyright 1999-2014 Gentoo Foundation
+# Copyright 1999-2015 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# gentoo-x86: sys-devel/gcc-4.9.2
-# riscv-gnu-toolchain: f06ba6a681552af465926622a16e8e30aa5e4cc2
+# gentoo-x86: sys-devel/gcc-5.1.0
+# riscv-gnu-toolchain: eff2e68ea0889f1f1cb583a9f1be389de0b6f43a
 
 EAPI="4"
 
@@ -9,7 +9,7 @@ PATCH_VER="1.0"
 UCLIBC_VER="1.0"
 
 # Hardened gcc 4 stuff
-PIE_VER="0.6.1"
+PIE_VER="0.6.3"
 SPECS_VER="0.2.0"
 SPECS_GCC_VER="4.4.3"
 # arch/libc configurations known to be stable with {PIE,SSP}-by-default
@@ -21,7 +21,7 @@ SSP_STABLE="amd64 x86 mips ppc ppc64 arm"
 SSP_UCLIBC_STABLE="x86 amd64 mips ppc ppc64 arm"
 #end Hardened stuff
 
-inherit eutils toolchain
+inherit toolchain
 
 KEYWORDS="riscv"
 
@@ -40,13 +40,9 @@ src_prepare() {
 		ewarn "Please rebuild gcc after upgrading to >=glibc-2.12 #362315"
 		EPATCH_EXCLUDE+=" 10_all_default-fortify-source.patch"
 	fi
+	is_crosscompile && EPATCH_EXCLUDE+=" 05_all_gcc-spec-env.patch"
 
         epatch "${FILESDIR}/${P}-riscv-${PR}.patch"
-        epatch "${FILESDIR}/${P}-riscv-${PR}-uapi.patch"
 
 	toolchain_src_prepare
-
-	use vanilla && return 0
-	#Use -r1 for newer piepatchet that use DRIVER_SELF_SPECS for the hardened specs.
-	[[ ${CHOST} == ${CTARGET} ]] && epatch "${FILESDIR}"/gcc-spec-env-r1.patch
 }

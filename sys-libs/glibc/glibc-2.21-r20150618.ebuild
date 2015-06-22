@@ -1,7 +1,7 @@
-# Copyright 1999-2014 Gentoo Foundation
+# Copyright 1999-2015 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# gentoo-x86: sys-libs/glibc-2.20-r1
-# riscv-gnu-toolchain: f06ba6a681552af465926622a16e8e30aa5e4cc2
+# gentoo-x86: sys-libs/glibc-2.21
+# riscv-gnu-toolchain: eff2e68ea0889f1f1cb583a9f1be389de0b6f43a
 
 EAPI="4"
 
@@ -28,7 +28,7 @@ case ${PV} in
 	;;
 esac
 GCC_BOOTSTRAP_VER="4.7.3-r1"
-PATCH_VER="3"                                  # Gentoo patchset
+PATCH_VER="2"                                  # Gentoo patchset
 : ${NPTL_KERN_VER:="2.6.32"}                   # min kernel version nptl requires
 
 IUSE="debug gd hardened multilib nscd selinux systemtap profile suid vanilla crosscompile_opts_headers-only"
@@ -93,7 +93,7 @@ upstream_uris() {
 	echo mirror://gnu/glibc/$1 ftp://sourceware.org/pub/glibc/{releases,snapshots}/$1 mirror://gentoo/$1
 }
 gentoo_uris() {
-	local devspace="HTTP~vapier/dist/URI HTTP~azarah/glibc/URI HTTP~blueness/glibc/URI"
+	local devspace="HTTP~vapier/dist/URI HTTP~azarah/glibc/URI"
 	devspace=${devspace//HTTP/http://dev.gentoo.org/}
 	echo mirror://gentoo/$1 ${devspace//URI/$1}
 }
@@ -186,4 +186,12 @@ eblit-src_prepare-post() {
 			-e 's:-fstack-protector$:-fstack-protector-all:' \
 			*/Makefile || die
 	fi
+
+	case $(gcc-fullversion) in
+	4.8.[0-3]|4.9.0)
+		eerror "You need to switch to a newer compiler; gcc-4.8.[0-3] and gcc-4.9.0 miscompile"
+		eerror "glibc.  See https://bugs.gentoo.org/547420 for details."
+		die "need to switch compilers #547420"
+		;;
+	esac
 }

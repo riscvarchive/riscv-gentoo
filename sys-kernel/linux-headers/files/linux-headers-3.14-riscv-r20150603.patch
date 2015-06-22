@@ -129,10 +129,10 @@ index 000000000000..376d06eb5d52
 +!.gitignore
 diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
 new file mode 100644
-index 000000000000..63c7c6914825
+index 000000000000..36b08a6bd044
 --- /dev/null
 +++ b/arch/riscv/Kconfig
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,229 @@
 +#
 +# For a description of the syntax of this configuration file,
 +# see Documentation/kbuild/kconfig-language.txt.
@@ -148,6 +148,7 @@ index 000000000000..63c7c6914825
 +	select GENERIC_IRQ_SHOW
 +	select GENERIC_STRNCPY_FROM_USER
 +	select GENERIC_STRNLEN_USER
++	select GENERIC_SMP_IDLE_THREAD
 +	select GENERIC_ATOMIC64 if !64BIT || !RV_ATOMIC
 +	select HAVE_MEMBLOCK
 +	select HAVE_MEMBLOCK_NODE_MAP
@@ -186,11 +187,24 @@ index 000000000000..63c7c6914825
 +
 +menu "Platform type"
 +
++config SMP
++	bool "Symmetric Multi-Processing"
++	help
++	  This enables support for systems with more than one CPU.  If
++	  you say N here, the kernel will run on single and
++	  multiprocessor machines, but will use only one CPU of a
++	  multiprocessor machine. If you say Y here, the kernel will run
++	  on many, but not all, single processor machines. On a single
++	  processor machine, the kernel will run faster if you say N
++	  here.
++
++	  If you don't know what to do here, say N.
++
 +config NR_CPUS
-+	int "Number of cores"
-+	range 1 1024
-+	default "1"
++	int "Maximum number of CPUs (2-32)"
++	range 2 32
 +	depends on SMP
++	default "8"
 +
 +choice
 +	prompt "CPU selection"
@@ -211,6 +225,10 @@ index 000000000000..63c7c6914825
 +	bool
 +config CPU_SUPPORTS_64BIT_KERNEL
 +	bool
++
++config RVC
++	bool "Use compressed instructions (RV32C or RV64C)"
++	default n
 +
 +config RV_ATOMIC
 +	bool "Use atomic memory instructions (RV32A or RV64A)"
@@ -346,10 +364,10 @@ index 000000000000..63c7c6914825
 +
 diff --git a/arch/riscv/Makefile b/arch/riscv/Makefile
 new file mode 100644
-index 000000000000..bea92ccfeb83
+index 000000000000..9a5f5a24e020
 --- /dev/null
 +++ b/arch/riscv/Makefile
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,57 @@
 +# BK Id: %F% %I% %G% %U% %#%
 +#
 +# This file is included by the global makefile so that you can add your own
@@ -391,7 +409,12 @@ index 000000000000..bea92ccfeb83
 +endif
 +
 +KBUILD_CFLAGS += -Wall
-+KBUILD_CFLAGS += -fno-section-anchors
++KBUILD_CFLAGS += -msoft-float
++
++ifeq ($(CONFIG_RVC),y)
++	KBUILD_CFLAGS += -mrvc
++	KBUILD_AFLAGS += -Wa,-mrvc
++endif
 +
 +head-y := arch/riscv/kernel/head.o
 +
@@ -1465,10 +1488,10 @@ index 000000000000..dadf23aaf96e
 +obj-$(CONFIG_HTIF_RFB)		+= htif-rfb.o
 diff --git a/arch/riscv/htif/htif-blk.c b/arch/riscv/htif/htif-blk.c
 new file mode 100644
-index 000000000000..43ff5ef6702d
+index 000000000000..65ac29f4f97a
 --- /dev/null
 +++ b/arch/riscv/htif/htif-blk.c
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,255 @@
 +#include <linux/init.h>
 +#include <linux/fs.h>
 +#include <linux/blkdev.h>
@@ -1550,13 +1573,11 @@ index 000000000000..43ff5ef6702d
 +{
 +	struct htifblk_device *dev;
 +	struct request *req;
-+	unsigned long flags;
 +	int ret;
 +
 +	dev = q->queuedata;
-+	spin_lock_irqsave(q->queue_lock, flags);
 +	if (dev->req != NULL)
-+		goto out;
++		return;
 +
 +	while ((req = blk_fetch_request(q)) != NULL) {
 +		if (req->cmd_type == REQ_TYPE_FS) {
@@ -1574,8 +1595,6 @@ index 000000000000..43ff5ef6702d
 +			continue;
 +		}
 +	}
-+out:
-+	spin_unlock_irqrestore(q->queue_lock, flags);
 +}
 +
 +static irqreturn_t htifblk_isr(struct htif_device *dev, sbi_device_message *msg)
@@ -2292,10 +2311,10 @@ index 000000000000..663d767c87e0
 +MODULE_LICENSE("GPL");
 diff --git a/arch/riscv/htif/htif.c b/arch/riscv/htif/htif.c
 new file mode 100644
-index 000000000000..fb8f19abe473
+index 000000000000..eb8801938716
 --- /dev/null
 +++ b/arch/riscv/htif/htif.c
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,175 @@
 +#include <linux/kernel.h>
 +#include <linux/device.h>
 +#include <linux/slab.h>
@@ -2353,9 +2372,6 @@ index 000000000000..fb8f19abe473
 +{
 +	irqreturn_t ret = IRQ_NONE;
 +	uintptr_t message_paddr;
-+
-+	/* Clear the interrupt. */
-+	csr_clear(sip, SIE_SSIE);
 +
 +	while ((message_paddr = sbi_receive_device_response()) != 0) {
 +		sbi_device_message *message;
@@ -2428,7 +2444,6 @@ index 000000000000..fb8f19abe473
 +		response = htif_fromhost();
 +		WARN_ON(&request != response);
 +
-+		csr_clear(sip, SIE_SSIE);
 +		arch_local_irq_restore(flags);
 +
 +		len = strnlen(id, sizeof(id));
@@ -2477,10 +2492,10 @@ index 000000000000..fb8f19abe473
 +subsys_initcall(htif_init);
 diff --git a/arch/riscv/include/asm/Kbuild b/arch/riscv/include/asm/Kbuild
 new file mode 100644
-index 000000000000..eebbbfcb587c
+index 000000000000..ec16d6d79d45
 --- /dev/null
 +++ b/arch/riscv/include/asm/Kbuild
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,60 @@
 +generic-y += bugs.h
 +generic-y += cacheflush.h
 +generic-y += checksum.h
@@ -2506,7 +2521,6 @@ index 000000000000..eebbbfcb587c
 +generic-y += kdebug.h
 +generic-y += kmap_types.h
 +generic-y += kvm_para.h
-+generic-y += linkage.h
 +generic-y += local.h
 +generic-y += mman.h
 +generic-y += module.h
@@ -2531,7 +2545,6 @@ index 000000000000..eebbbfcb587c
 +generic-y += stat.h
 +generic-y += statfs.h
 +generic-y += swab.h
-+generic-y += switch_to.h
 +generic-y += termbits.h
 +generic-y += termios.h
 +generic-y += topology.h
@@ -2607,10 +2620,10 @@ index 000000000000..e8e99035ac0a
 +#endif /* _ASM_RISCV_ASM_H */
 diff --git a/arch/riscv/include/asm/atomic.h b/arch/riscv/include/asm/atomic.h
 new file mode 100644
-index 000000000000..300345ea7c75
+index 000000000000..c0dcd0b3750e
 --- /dev/null
 +++ b/arch/riscv/include/asm/atomic.h
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,261 @@
 +#ifndef _ASM_RISCV_ATOMIC_H
 +#define _ASM_RISCV_ATOMIC_H
 +
@@ -2818,11 +2831,7 @@ index 000000000000..300345ea7c75
 +	"0:"
 +		"lr.w %0, %2\n"
 +		"beq  %0, %4, 1f\n"
-+#ifdef CONFIG_64BIT
-+		"addw %1, %0, %3\n"
-+#else
 +		"add  %1, %0, %3\n"
-+#endif /* CONFIG_64BIT */
 +		"sc.w %1, %1, %2\n"
 +		"bnez %1, 0b\n"
 +	"1:"
@@ -3512,6 +3521,39 @@ index 000000000000..e2e6718ad8dd
 +#define L1_CACHE_BYTES		(1 << L1_CACHE_SHIFT)
 +
 +#endif /* _ASM_RISCV_CACHE_H */
+diff --git a/arch/riscv/include/asm/cacheflush.h b/arch/riscv/include/asm/cacheflush.h
+new file mode 100644
+index 000000000000..56978bcdc61a
+--- /dev/null
++++ b/arch/riscv/include/asm/cacheflush.h
+@@ -0,0 +1,27 @@
++#ifndef _ASM_RISCV_CACHEFLUSH_H
++#define _ASM_RISCV_CACHEFLUSH_H
++
++#include <asm-generic/cacheflush.h>
++
++#undef flush_icache_range
++#undef flush_icache_user_range
++
++static inline void local_flush_icache_all(void)
++{
++	asm volatile ("fence.i" ::: "memory");
++}
++
++#ifndef CONFIG_SMP
++
++#define flush_icache_range(start, end) local_flush_icache_all()
++#define flush_icache_user_range(vma, pg, addr, len) local_flush_icache_all()
++
++#else /* CONFIG_SMP */
++
++void flush_icache_range(uintptr_t start, uintptr_t end);
++#define flush_icache_user_range(vma, pg, addr, len) \
++	flush_icache_range((addr), (addr) + (len))
++
++#endif /* CONFIG_SMP */
++
++#endif /* _ASM_RISCV_CACHEFLUSH_H */
 diff --git a/arch/riscv/include/asm/cmpxchg.h b/arch/riscv/include/asm/cmpxchg.h
 new file mode 100644
 index 000000000000..75c3e5ae1c4c
@@ -3631,10 +3673,10 @@ index 000000000000..75c3e5ae1c4c
 +#endif /* _ASM_RISCV_CMPXCHG_H */
 diff --git a/arch/riscv/include/asm/csr.h b/arch/riscv/include/asm/csr.h
 new file mode 100644
-index 000000000000..f07340997209
+index 000000000000..59ab7c4180ec
 --- /dev/null
 +++ b/arch/riscv/include/asm/csr.h
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,138 @@
 +#ifndef _ASM_RISCV_CSR_H
 +#define _ASM_RISCV_CSR_H
 +
@@ -3644,18 +3686,30 @@ index 000000000000..f07340997209
 +#define SR_IE   _AC(0x00000001,UL) /* Interrupt Enable */
 +#define SR_PIE  _AC(0x00000008,UL) /* Previous IE */
 +#define SR_PS   _AC(0x00000010,UL) /* Previously Supervisor */
-+#define SR_FS   _AC(0x00003000,UL) /* Floating-point Status */
-+#define SR_XS   _AC(0x0000C000,UL) /* Extension Status */
++
++#define SR_FS           _AC(0x00003000,UL) /* Floating-point Status */
++#define SR_FS_OFF       _AC(0x00000000,UL)
++#define SR_FS_INITIAL   _AC(0x00001000,UL)
++#define SR_FS_CLEAN     _AC(0x00002000,UL)
++#define SR_FS_DIRTY     _AC(0x00003000,UL)
++
++#define SR_XS           _AC(0x0000C000,UL) /* Extension Status */
++#define SR_XS_OFF       _AC(0x00000000,UL)
++#define SR_XS_INITIAL   _AC(0x00004000,UL)
++#define SR_XS_CLEAN     _AC(0x00008000,UL)
++#define SR_XS_DIRTY     _AC(0x0000C000,UL)
++
 +#define SR_MPRV _AC(0x00010000,UL) /* Memory Privilege */
-+#ifndef __riscv64
-+# define SR_SD  _AC(0x80000000,UL) /* FS/XS dirty */
++
++#ifndef CONFIG_64BIT
++#define SR_SD   _AC(0x80000000,UL) /* FS/XS dirty */
 +#else
-+# define SR_SD  _AC(0x8000000000000000,UL) /* FS/XS dirty */
++#define SR_SD   _AC(0x8000000000000000,UL) /* FS/XS dirty */
 +#endif
 +
 +/* Interrupt Enable and Interrupt Pending flags */
 +#define SIE_SSIE _AC(0x00000002,UL) /* Software Interrupt Enable */
-+#define SIE_STIE _AC(0x00000200,UL) /* Timer Interrupt Enable */
++#define SIE_STIE _AC(0x00000020,UL) /* Timer Interrupt Enable */
 +
 +#define EXC_INST_MISALIGNED     0
 +#define EXC_INST_ACCESS         1
@@ -3785,73 +3839,16 @@ index 000000000000..62c801e4a60e
 +#endif /* _ASM_RISCV_CURRENT_H */
 diff --git a/arch/riscv/include/asm/elf.h b/arch/riscv/include/asm/elf.h
 new file mode 100644
-index 000000000000..813e16db9828
+index 000000000000..e9e9df6fb32d
 --- /dev/null
 +++ b/arch/riscv/include/asm/elf.h
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,72 @@
 +#ifndef _ASM_RISCV_ELF_H
 +#define _ASM_RISCV_ELF_H
 +
-+#include <asm/ptrace.h>
++#include <uapi/asm/elf.h>
 +#include <asm/auxvec.h>
-+
-+/* ELF register definitions */
-+typedef unsigned long elf_greg_t;
-+
-+#define ELF_NGREG (sizeof(struct pt_regs) / sizeof(elf_greg_t))
-+typedef elf_greg_t elf_gregset_t[ELF_NGREG];
-+
-+#define ELF_NFPREG	0
-+typedef double elf_fpreg_t;
-+typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
-+
-+
-+/*
-+ * RISC-V relocation types
-+ */
-+
-+/* Relocation types used by the dynamic linker */
-+#define R_RISCV_NONE		0
-+#define R_RISCV_32		1
-+#define R_RISCV_64		2
-+#define R_RISCV_RELATIVE	3
-+#define R_RISCV_COPY		4
-+#define R_RISCV_JUMP_SLOT	5
-+#define R_RISCV_TLS_DTPMOD32	6
-+#define R_RISCV_TLS_DTPMOD64	7
-+#define R_RISCV_TLS_DTPREL32	8
-+#define R_RISCV_TLS_DTPREL64	9
-+#define R_RISCV_TLS_TPREL32	10
-+#define R_RISCV_TLS_TPREL64	11
-+/* Relocation types not used by the dynamic linker */
-+#define R_RISCV_BRANCH		16
-+#define R_RISCV_JAL		17
-+#define R_RISCV_CALL		18
-+#define R_RISCV_CALL_PLT	19
-+#define R_RISCV_GOT_HI20	20
-+#define R_RISCV_TLS_GOT_HI20	21
-+#define R_RISCV_TLS_GD_HI20	22
-+#define R_RISCV_PCREL_HI20	23
-+#define R_RISCV_PCREL_LO12_I	24
-+#define R_RISCV_PCREL_LO12_S	25
-+#define R_RISCV_HI20		26
-+#define R_RISCV_LO12_I		27
-+#define R_RISCV_LO12_S		28
-+#define R_RISCV_TPREL_HI20	29
-+#define R_RISCV_TPREL_LO12_I	30
-+#define R_RISCV_TPREL_LO12_S	31
-+#define R_RISCV_TPREL_ADD	32
-+#define R_RISCV_ADD8		33
-+#define R_RISCV_ADD16		34
-+#define R_RISCV_ADD32		35
-+#define R_RISCV_ADD64		36
-+#define R_RISCV_SUB8		37
-+#define R_RISCV_SUB16		38
-+#define R_RISCV_SUB32		39
-+#define R_RISCV_SUB64		40
-+#define R_RISCV_GNU_VTINHERIT	41
-+#define R_RISCV_GNU_VTENTRY	42
-+#define R_RISCV_ALIGN		43
++#include <asm/byteorder.h>
 +
 +/* TODO: Move definition into include/uapi/linux/elf-em.h */
 +#define EM_RISCV	0xF3
@@ -3860,12 +3857,20 @@ index 000000000000..813e16db9828
 + * These are used to set parameters in the core dumps.
 + */
 +#define ELF_ARCH	EM_RISCV
++
 +#ifdef CONFIG_64BIT
 +#define ELF_CLASS	ELFCLASS64
 +#else
 +#define ELF_CLASS	ELFCLASS32
 +#endif
++
++#if defined(__LITTLE_ENDIAN)
++#define ELF_DATA	ELFDATA2LSB
++#elif defined(__BIG_ENDIAN)
 +#define ELF_DATA	ELFDATA2MSB
++#else
++#error "Unknown endianness"
++#endif
 +
 +/*
 + * This is used to ensure we don't load something for the wrong architecture.
@@ -3908,7 +3913,6 @@ index 000000000000..813e16db9828
 +struct linux_binprm;
 +extern int arch_setup_additional_pages(struct linux_binprm *bprm,
 +	int uses_interp);
-+
 +
 +#endif /* _ASM_RISCV_ELF_H */
 diff --git a/arch/riscv/include/asm/htif.h b/arch/riscv/include/asm/htif.h
@@ -4114,6 +4118,19 @@ index 000000000000..bc713690b838
 +}
 +
 +#endif /* _ASM_RISCV_IRQFLAGS_H */
+diff --git a/arch/riscv/include/asm/linkage.h b/arch/riscv/include/asm/linkage.h
+new file mode 100644
+index 000000000000..5a233405a83e
+--- /dev/null
++++ b/arch/riscv/include/asm/linkage.h
+@@ -0,0 +1,7 @@
++#ifndef _ASM_RISCV_LINKAGE_H
++#define _ASM_RISCV_LINKAGE_H
++
++#define __ALIGN		.balign 2
++#define __ALIGN_STR	".balign 2"
++
++#endif /* _ASM_RISCV_LINKAGE_H */
 diff --git a/arch/riscv/include/asm/mmu.h b/arch/riscv/include/asm/mmu.h
 new file mode 100644
 index 000000000000..6a03af73632f
@@ -4134,7 +4151,7 @@ index 000000000000..6a03af73632f
 +#endif /* _ASM_RISCV_MMU_H */
 diff --git a/arch/riscv/include/asm/mmu_context.h b/arch/riscv/include/asm/mmu_context.h
 new file mode 100644
-index 000000000000..80cfd57a97b1
+index 000000000000..653df757f623
 --- /dev/null
 +++ b/arch/riscv/include/asm/mmu_context.h
 @@ -0,0 +1,46 @@
@@ -4168,7 +4185,7 @@ index 000000000000..80cfd57a97b1
 +{
 +	if (likely(prev != next)) {
 +		csr_write(sptbr, __pa(next->pgd));
-+		flush_tlb_all();
++		local_flush_tlb_all();
 +	}
 +}
 +
@@ -4914,14 +4931,16 @@ index 000000000000..74c1a29a2e61
 +#endif /* _ASM_RISCV_PGTABLE_H */
 diff --git a/arch/riscv/include/asm/processor.h b/arch/riscv/include/asm/processor.h
 new file mode 100644
-index 000000000000..ae0c88da5833
+index 000000000000..25b1e0b0993f
 --- /dev/null
 +++ b/arch/riscv/include/asm/processor.h
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,87 @@
 +#ifndef _ASM_RISCV_PROCESSOR_H
 +#define _ASM_RISCV_PROCESSOR_H
 +
 +#include <linux/const.h>
++
++#include <asm/ptrace.h>
 +
 +/*
 + * This decides where the kernel will search for a free chunk of vm
@@ -4949,8 +4968,9 @@ index 000000000000..ae0c88da5833
 +struct thread_struct {
 +	/* Callee-saved registers */
 +	unsigned long ra;
-+	unsigned long s[12];	/* s[0]: frame pointer */
 +	unsigned long sp;	/* Kernel mode stack */
++	unsigned long s[12];	/* s[0]: frame pointer */
++	struct user_fpregs_struct fstate;
 +};
 +
 +#define INIT_THREAD {					\
@@ -4965,7 +4985,7 @@ index 000000000000..ae0c88da5833
 +#define task_pt_regs(tsk) \
 +	((struct pt_regs *)(task_stack_page(tsk) + THREAD_SIZE) - 1)
 +
-+#define KSTK_EIP(tsk)		(task_pt_regs(tsk)->epc)
++#define KSTK_EIP(tsk)		(task_pt_regs(tsk)->sepc)
 +#define KSTK_ESP(tsk)		(task_pt_regs(tsk)->sp)
 +
 +
@@ -4994,24 +5014,30 @@ index 000000000000..ae0c88da5833
 +	barrier();
 +}
 +
++static inline void wait_for_interrupt(void)
++{
++	__asm__ __volatile__ ("wfi");
++}
++
 +#endif /* __ASSEMBLY__ */
 +
 +#endif /* _ASM_RISCV_PROCESSOR_H */
 diff --git a/arch/riscv/include/asm/ptrace.h b/arch/riscv/include/asm/ptrace.h
 new file mode 100644
-index 000000000000..044c4988ef07
+index 000000000000..998a1bdde1ff
 --- /dev/null
 +++ b/arch/riscv/include/asm/ptrace.h
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,103 @@
 +#ifndef _ASM_RISCV_PTRACE_H
 +#define _ASM_RISCV_PTRACE_H
 +
++#include <uapi/asm/ptrace.h>
 +#include <asm/csr.h>
 +
 +#ifndef __ASSEMBLY__
 +
-+typedef struct pt_regs {
-+	unsigned long epc;
++struct pt_regs {
++	unsigned long sepc;
 +	unsigned long ra;
 +	unsigned long sp;
 +	unsigned long gp;
@@ -5043,11 +5069,11 @@ index 000000000000..044c4988ef07
 +	unsigned long t4;
 +	unsigned long t5;
 +	unsigned long t6;
-+	/* PCRs */
-+	unsigned long status;
-+	unsigned long badvaddr;
-+	unsigned long cause;
-+} pt_regs;
++	/* Supervisor CSRs */
++	unsigned long sstatus;
++	unsigned long sbadaddr;
++	unsigned long scause;
++};
 +
 +#ifdef CONFIG_64BIT
 +#define REG_FMT "%016lx"
@@ -5055,11 +5081,11 @@ index 000000000000..044c4988ef07
 +#define REG_FMT "%08lx"
 +#endif
 +
-+#define user_mode(regs) (((regs)->status & SR_PS) == 0)
++#define user_mode(regs) (((regs)->sstatus & SR_PS) == 0)
 +
 +
 +/* Helpers for working with the instruction pointer */
-+#define GET_IP(regs) ((regs)->epc)
++#define GET_IP(regs) ((regs)->sepc)
 +#define SET_IP(regs, val) (GET_IP(regs) = (val))
 +
 +static inline unsigned long instruction_pointer(struct pt_regs *regs)
@@ -5107,10 +5133,10 @@ index 000000000000..044c4988ef07
 +#endif /* _ASM_RISCV_PTRACE_H */
 diff --git a/arch/riscv/include/asm/sbi.h b/arch/riscv/include/asm/sbi.h
 new file mode 100644
-index 000000000000..cd7594fe83e4
+index 000000000000..7c25588b6de6
 --- /dev/null
 +++ b/arch/riscv/include/asm/sbi.h
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,30 @@
 +#ifndef _ASM_RISCV_SBI_H
 +#define _ASM_RISCV_SBI_H
 +
@@ -5125,8 +5151,10 @@ index 000000000000..cd7594fe83e4
 +unsigned long sbi_hart_id(void);
 +unsigned long sbi_num_harts(void);
 +unsigned long sbi_timebase(void);
-+void sbi_send_ipi(uintptr_t hart_id);
-+void sbi_console_putchar(unsigned char ch);
++void sbi_send_ipi(unsigned long hart_id);
++unsigned long sbi_clear_ipi(void);
++void sbi_console_putchar(unsigned long ch);
++void sbi_shutdown(void);
 +
 +typedef struct {
 +  unsigned long dev;
@@ -5135,8 +5163,8 @@ index 000000000000..cd7594fe83e4
 +  unsigned long sbi_private_data;
 +} sbi_device_message;
 +
-+unsigned long sbi_send_device_request(uintptr_t req);
-+uintptr_t sbi_receive_device_response(void);
++unsigned long sbi_send_device_request(unsigned long req);
++unsigned long sbi_receive_device_response(void);
 +
 +#endif
 diff --git a/arch/riscv/include/asm/serial.h b/arch/riscv/include/asm/serial.h
@@ -5186,6 +5214,217 @@ index 000000000000..2fa67777fcfa
 +#include <asm-generic/setup.h>
 +
 +#endif /* _ASM_RISCV_SETUP_H */
+diff --git a/arch/riscv/include/asm/smp.h b/arch/riscv/include/asm/smp.h
+new file mode 100644
+index 000000000000..7168dcd03d5a
+--- /dev/null
++++ b/arch/riscv/include/asm/smp.h
+@@ -0,0 +1,31 @@
++#ifndef _ASM_RISCV_SMP_H
++#define _ASM_RISCV_SMP_H
++
++#include <linux/cpumask.h>
++
++#ifdef CONFIG_SMP
++
++/* SMP initialization hook for setup_arch */
++void __init init_clockevent(void);
++
++/* SMP initialization hook for setup_arch */
++void __init setup_smp(void);
++
++/* Hook for the generic smp_call_function_many() routine. */
++void arch_send_call_function_ipi_mask(struct cpumask *mask);
++
++/* Hook for the generic smp_call_function_single() routine. */
++void arch_send_call_function_single_ipi(int cpu);
++
++#define raw_smp_processor_id() (current_thread_info()->cpu)
++
++/* Possibly handle an IPI and return whether or not one actually occurred */
++bool handle_ipi(void);
++
++#else /* !CONFIG_SMP */
++
++#define handle_ipi() (0)
++
++#endif /* CONFIG_SMP */
++
++#endif /* _ASM_RISCV_SMP_H */
+diff --git a/arch/riscv/include/asm/spinlock.h b/arch/riscv/include/asm/spinlock.h
+new file mode 100644
+index 000000000000..5195b31a8aee
+--- /dev/null
++++ b/arch/riscv/include/asm/spinlock.h
+@@ -0,0 +1,142 @@
++#ifndef _ASM_RISCV_SPINLOCK_H
++#define _ASM_RISCV_SPINLOCK_H
++
++#include <linux/kernel.h>
++#include <asm/current.h>
++
++/*
++ * Simple spin lock operations.  These provide no fairness guarantees.
++ */
++
++#define arch_spin_lock_flags(lock, flags) arch_spin_lock(lock)
++#define arch_spin_is_locked(x)	((x)->lock != 0)
++#define arch_spin_unlock_wait(x) \
++		do { cpu_relax(); } while ((x)->lock)
++
++static inline void arch_spin_unlock(arch_spinlock_t *lock)
++{
++	__asm__ __volatile__ (
++		"amoswap.w.rl x0, x0, %0"
++		: "=A" (lock->lock)
++		:: "memory");
++}
++
++static inline int arch_spin_trylock(arch_spinlock_t *lock)
++{
++	int tmp = 1, busy;
++
++	__asm__ __volatile__ (
++		"amoswap.w.aq %0, %2, %1"
++		: "=r" (busy), "+A" (lock->lock)
++		: "r" (tmp)
++		: "memory");
++
++	return !busy;
++}
++
++static inline void arch_spin_lock(arch_spinlock_t *lock)
++{
++	while (1) {
++		if (arch_spin_is_locked(lock))
++			continue;
++
++		if (arch_spin_trylock(lock))
++			break;
++	}
++}
++
++/***********************************************************/
++
++static inline int arch_read_can_lock(arch_rwlock_t *lock)
++{
++	return lock->lock >= 0;
++}
++
++static inline int arch_write_can_lock(arch_rwlock_t *lock)
++{
++	return lock->lock == 0;
++}
++
++static inline void arch_read_lock(arch_rwlock_t *lock)
++{
++	int tmp;
++
++	__asm__ __volatile__(
++		"1:	lr.w	%1, %0\n"
++		"	bltz	%1, 1b\n"
++		"	addi	%1, %1, 1\n"
++		"	sc.w.aq	%1, %1, %0\n"
++		"	bnez	%1, 1b\n"
++		: "+A" (lock->lock), "=&r" (tmp)
++		:: "memory");
++}
++
++static inline void arch_write_lock(arch_rwlock_t *lock)
++{
++	int tmp;
++
++	__asm__ __volatile__(
++		"1:	lr.w	%1, %0\n"
++		"	bnez	%1, 1b\n"
++		"	li	%1, -1\n"
++		"	sc.w.aq	%1, %1, %0\n"
++		"	bnez	%1, 1b\n"
++		: "+A" (lock->lock), "=&r" (tmp)
++		:: "memory");
++}
++
++static inline int arch_read_trylock(arch_rwlock_t * lock)
++{
++	int busy;
++
++	__asm__ __volatile__(
++		"1:	lr.w	%1, %0\n"
++		"	bltz	%1, 1f\n"
++		"	addi	%1, %1, 1\n"
++		"	sc.w.aq	%1, %1, %0\n"
++		"	bnez	%1, 1b\n"
++		"1:\n"
++		: "+A" (lock->lock), "=&r" (busy)
++		:: "memory");
++	
++	return !busy;
++}
++
++static inline int arch_write_trylock(arch_rwlock_t * lock)
++{
++	int busy;
++
++	__asm__ __volatile__(
++		"1:	lr.w	%1, %0\n"
++		"	bnez	%1, 1f\n"
++		"	li	%1, -1\n"
++		"	sc.w.aq	%1, %1, %0\n"
++		"	bnez	%1, 1b\n"
++		"1:\n"
++		: "+A" (lock->lock), "=&r" (busy)
++		:: "memory");
++	
++	return !busy;
++}
++
++static inline void arch_read_unlock(arch_rwlock_t * lock)
++{
++	__asm__ __volatile__(
++		"amoadd.w.rl x0, %1, %0"
++		: "+A" (lock->lock)
++		: "r" (-1)
++		: "memory");
++}
++
++static inline void arch_write_unlock(arch_rwlock_t * lock)
++{
++	__asm__ __volatile__ (
++		"amoswap.w.rl x0, x0, %0"
++		: "=A" (lock->lock)
++		:: "memory");
++}
++
++#define arch_read_lock_flags(lock, flags) arch_read_lock(lock)
++#define arch_write_lock_flags(lock, flags) arch_write_lock(lock)
++
++#endif /* _ASM_RISCV_SPINLOCK_H */
+diff --git a/arch/riscv/include/asm/spinlock_types.h b/arch/riscv/include/asm/spinlock_types.h
+new file mode 100644
+index 000000000000..e148ddafade1
+--- /dev/null
++++ b/arch/riscv/include/asm/spinlock_types.h
+@@ -0,0 +1,20 @@
++#ifndef _ASM_RISCV_SPINLOCK_TYPES_H
++#define _ASM_RISCV_SPINLOCK_TYPES_H
++
++#ifndef __LINUX_SPINLOCK_TYPES_H
++# error "please don't include this file directly"
++#endif
++
++typedef struct {
++	volatile unsigned int lock;
++} arch_spinlock_t;
++
++#define __ARCH_SPIN_LOCK_UNLOCKED	{ 0 }
++
++typedef struct {
++	volatile unsigned int lock;
++} arch_rwlock_t;
++
++#define __ARCH_RW_LOCK_UNLOCKED		{ 0 }
++
++#endif
 diff --git a/arch/riscv/include/asm/string.h b/arch/riscv/include/asm/string.h
 new file mode 100644
 index 000000000000..943735b465e3
@@ -5209,6 +5448,69 @@ index 000000000000..943735b465e3
 +#endif /* __KERNEL__ */
 +
 +#endif /* _ASM_RISCV_STRING_H */
+diff --git a/arch/riscv/include/asm/switch_to.h b/arch/riscv/include/asm/switch_to.h
+new file mode 100644
+index 000000000000..2de36621f40a
+--- /dev/null
++++ b/arch/riscv/include/asm/switch_to.h
+@@ -0,0 +1,57 @@
++#ifndef _ASM_RISCV_SWITCH_TO_H
++#define _ASM_RISCV_SWITCH_TO_H
++
++#include <asm/processor.h>
++#include <asm/ptrace.h>
++#include <asm/csr.h>
++
++extern void __fstate_save(struct task_struct *);
++extern void __fstate_restore(struct task_struct *);
++
++static inline void __fstate_clean(struct pt_regs *regs)
++{
++	regs->sstatus |= (regs->sstatus & ~(SR_FS)) | SR_FS_CLEAN;
++}
++
++static inline void fstate_save(struct task_struct *task,
++                               struct pt_regs *regs)
++{
++	if ((regs->sstatus & SR_FS) == SR_FS_DIRTY) {
++		__fstate_save(task);
++		__fstate_clean(regs);
++	}
++}
++
++static inline void fstate_restore(struct task_struct *task,
++                                  struct pt_regs *regs)
++{
++	if ((regs->sstatus & SR_FS) != SR_FS_OFF) {
++		__fstate_restore(task);
++		__fstate_clean(regs);
++	}
++}
++
++static inline void __switch_to_aux(struct task_struct *prev,
++                                   struct task_struct *next)
++{
++	struct pt_regs *regs;
++
++	regs = task_pt_regs(prev);
++	if (unlikely(regs->sstatus & SR_SD)) {
++		fstate_save(prev, regs);
++	}
++	fstate_restore(next, task_pt_regs(next));
++}
++
++extern struct task_struct *__switch_to(struct task_struct *,
++                                       struct task_struct *);
++
++#define switch_to(prev, next, last)			\
++do {							\
++	struct task_struct *__prev = (prev);		\
++	struct task_struct *__next = (next);		\
++	__switch_to_aux(__prev, __next);		\
++	((last) = __switch_to(__prev, __next));		\
++} while (0)
++
++#endif /* _ASM_RISCV_SWITCH_TO_H */
 diff --git a/arch/riscv/include/asm/syscalls.h b/arch/riscv/include/asm/syscalls.h
 new file mode 100644
 index 000000000000..083f189975c1
@@ -5229,7 +5531,7 @@ index 000000000000..083f189975c1
 +#endif /* _ASM_RISCV_SYSCALLS_H */
 diff --git a/arch/riscv/include/asm/thread_info.h b/arch/riscv/include/asm/thread_info.h
 new file mode 100644
-index 000000000000..cc91e0c9a5d2
+index 000000000000..cb48b3b5c782
 --- /dev/null
 +++ b/arch/riscv/include/asm/thread_info.h
 @@ -0,0 +1,94 @@
@@ -5242,7 +5544,7 @@ index 000000000000..cc91e0c9a5d2
 +#include <linux/const.h>
 +
 +/* thread information allocation */
-+#define THREAD_SIZE_ORDER 	(0)
++#define THREAD_SIZE_ORDER 	(1)
 +#define THREAD_SIZE 		(PAGE_SIZE << THREAD_SIZE_ORDER)
 +
 +#ifndef __ASSEMBLY__
@@ -5329,7 +5631,7 @@ index 000000000000..cc91e0c9a5d2
 +#endif /* _ASM_RISCV_THREAD_INFO_H */
 diff --git a/arch/riscv/include/asm/timex.h b/arch/riscv/include/asm/timex.h
 new file mode 100644
-index 000000000000..28033105e3a4
+index 000000000000..f263f3e5de6a
 --- /dev/null
 +++ b/arch/riscv/include/asm/timex.h
 @@ -0,0 +1,27 @@
@@ -5346,7 +5648,7 @@ index 000000000000..28033105e3a4
 +{
 +	cycles_t n;
 +	__asm__ __volatile__ (
-+		"rdcycle %0"
++		"rdtime %0"
 +		: "=r" (n));
 +	return n;
 +}
@@ -5395,10 +5697,10 @@ index 000000000000..3753e68fa01e
 +#endif /* _ASM_RISCV_TLB_H */
 diff --git a/arch/riscv/include/asm/tlbflush.h b/arch/riscv/include/asm/tlbflush.h
 new file mode 100644
-index 000000000000..6a60b36271a7
+index 000000000000..9f14e5f077e2
 --- /dev/null
 +++ b/arch/riscv/include/asm/tlbflush.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,85 @@
 +#ifndef _ASM_RISCV_TLBFLUSH_H
 +#define _ASM_RISCV_TLBFLUSH_H
 +
@@ -5408,11 +5710,21 @@ index 000000000000..6a60b36271a7
 +#include <linux/bug.h>
 +#include <asm/csr.h>
 +
-+/* Flush all TLB entries */
-+static inline void flush_tlb_all(void)
++/* Flush entire local TLB */
++static inline void local_flush_tlb_all(void)
 +{
 +	__asm__ __volatile__ ("sfence.vm");
 +}
++
++#ifndef CONFIG_SMP
++
++#define flush_tlb_all() local_flush_tlb_all()
++
++#else /* CONFIG_SMP */
++
++void flush_tlb_all(void);
++
++#endif /* CONFIG_SMP */
 +
 +/* Flush the TLB entries of the specified mm context */
 +static inline void flush_tlb_mm(struct mm_struct *mm)
@@ -6064,46 +6376,96 @@ index 000000000000..11b87496f8e4
 +#endif
 +
 +#endif /* _UAPI_ASM_RISCV_BYTEORDER_H */
+diff --git a/arch/riscv/include/uapi/asm/elf.h b/arch/riscv/include/uapi/asm/elf.h
+new file mode 100644
+index 000000000000..e9d8858de238
+--- /dev/null
++++ b/arch/riscv/include/uapi/asm/elf.h
+@@ -0,0 +1,64 @@
++#ifndef _UAPI_ASM_ELF_H
++#define _UAPI_ASM_ELF_H
++
++#include <asm/ptrace.h>
++
++/* ELF register definitions */
++typedef unsigned long elf_greg_t;
++typedef struct user_regs_struct elf_gregset_t;
++#define ELF_NGREG (sizeof(elf_gregset_t) / sizeof(elf_greg_t))
++
++typedef struct user_fpregs_struct elf_fpregset_t;
++
++
++/*
++ * RISC-V relocation types
++ */
++
++/* Relocation types used by the dynamic linker */
++#define R_RISCV_NONE		0
++#define R_RISCV_32		1
++#define R_RISCV_64		2
++#define R_RISCV_RELATIVE	3
++#define R_RISCV_COPY		4
++#define R_RISCV_JUMP_SLOT	5
++#define R_RISCV_TLS_DTPMOD32	6
++#define R_RISCV_TLS_DTPMOD64	7
++#define R_RISCV_TLS_DTPREL32	8
++#define R_RISCV_TLS_DTPREL64	9
++#define R_RISCV_TLS_TPREL32	10
++#define R_RISCV_TLS_TPREL64	11
++
++/* Relocation types not used by the dynamic linker */
++#define R_RISCV_BRANCH		16
++#define R_RISCV_JAL		17
++#define R_RISCV_CALL		18
++#define R_RISCV_CALL_PLT	19
++#define R_RISCV_GOT_HI20	20
++#define R_RISCV_TLS_GOT_HI20	21
++#define R_RISCV_TLS_GD_HI20	22
++#define R_RISCV_PCREL_HI20	23
++#define R_RISCV_PCREL_LO12_I	24
++#define R_RISCV_PCREL_LO12_S	25
++#define R_RISCV_HI20		26
++#define R_RISCV_LO12_I		27
++#define R_RISCV_LO12_S		28
++#define R_RISCV_TPREL_HI20	29
++#define R_RISCV_TPREL_LO12_I	30
++#define R_RISCV_TPREL_LO12_S	31
++#define R_RISCV_TPREL_ADD	32
++#define R_RISCV_ADD8		33
++#define R_RISCV_ADD16		34
++#define R_RISCV_ADD32		35
++#define R_RISCV_ADD64		36
++#define R_RISCV_SUB8		37
++#define R_RISCV_SUB16		38
++#define R_RISCV_SUB32		39
++#define R_RISCV_SUB64		40
++#define R_RISCV_GNU_VTINHERIT	41
++#define R_RISCV_GNU_VTENTRY	42
++#define R_RISCV_ALIGN		43
++#define R_RISCV_RVC_BRANCH	44
++#define R_RISCV_RVC_JUMP	45
++
++#endif /* _UAPI_ASM_ELF_H */
 diff --git a/arch/riscv/include/uapi/asm/ptrace.h b/arch/riscv/include/uapi/asm/ptrace.h
 new file mode 100644
-index 000000000000..346ae1f7c3c4
+index 000000000000..3be7cb62933a
 --- /dev/null
 +++ b/arch/riscv/include/uapi/asm/ptrace.h
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,55 @@
 +#ifndef _UAPI_ASM_RISCV_PTRACE_H
 +#define _UAPI_ASM_RISCV_PTRACE_H
 +
-+/* Mirror pt_regs from ptrace.h */
++#ifndef __ASSEMBLY__
 +
-+typedef struct user_regs_struct {
-+	unsigned long pc;
-+	unsigned long ra;
-+	unsigned long s[12];
-+	unsigned long sp;
-+	unsigned long tp;
-+	unsigned long v[2];
-+	unsigned long a[8];
-+	unsigned long t[5];
-+	unsigned long gp;
-+	unsigned long status;
-+} user_regs_struct;
++#include <linux/types.h>
 +
-+#endif /* _UAPI_ASM_RISCV_PTRACE_H */
-diff --git a/arch/riscv/include/uapi/asm/sigcontext.h b/arch/riscv/include/uapi/asm/sigcontext.h
-new file mode 100644
-index 000000000000..8eb489f9f2e3
---- /dev/null
-+++ b/arch/riscv/include/uapi/asm/sigcontext.h
-@@ -0,0 +1,43 @@
-+#ifndef _UAPI_ASM_RISCV_SIGCONTEXT_H
-+#define _UAPI_ASM_RISCV_SIGCONTEXT_H
-+
-+/* This struct is saved by setup_frame in signal.c, to keep the current
-+ * context while a signal handler is executed. It is restored by sys_sigreturn.
++/* User-mode register state for core dumps, ptrace, sigcontext
++ *
++ * This decouples struct pt_regs from the userspace ABI.
++ * struct user_regs_struct must form a prefix of struct pt_regs.
 + */
-+
-+struct sigcontext {
-+	unsigned long epc;
++struct user_regs_struct {
++	unsigned long pc;
 +	unsigned long ra;
 +	unsigned long sp;
 +	unsigned long gp;
@@ -6135,6 +6497,35 @@ index 000000000000..8eb489f9f2e3
 +	unsigned long t4;
 +	unsigned long t5;
 +	unsigned long t6;
++};
++
++struct user_fpregs_struct {
++	__u64 f[32];
++	__u32 fcsr;
++};
++
++#endif /* __ASSEMBLY__ */
++
++#endif /* _UAPI_ASM_RISCV_PTRACE_H */
+diff --git a/arch/riscv/include/uapi/asm/sigcontext.h b/arch/riscv/include/uapi/asm/sigcontext.h
+new file mode 100644
+index 000000000000..d4e232148bd9
+--- /dev/null
++++ b/arch/riscv/include/uapi/asm/sigcontext.h
+@@ -0,0 +1,16 @@
++#ifndef _UAPI_ASM_RISCV_SIGCONTEXT_H
++#define _UAPI_ASM_RISCV_SIGCONTEXT_H
++
++#include <asm/ptrace.h>
++
++/* Signal context structure
++ *
++ * This contains the context saved before a signal handler is invoked;
++ * it is restored by sys_sigreturn / sys_rt_sigreturn.
++ */
++struct sigcontext {
++	struct user_regs_struct sc_regs;
++	struct user_fpregs_struct sc_fpregs;
 +};
 +
 +#endif /* _UAPI_ASM_RISCV_SIGCONTEXT_H */
@@ -6170,10 +6561,10 @@ index 000000000000..61ac52931289
 +slink /init /bin/busybox 755 0 0
 diff --git a/arch/riscv/kernel/Makefile b/arch/riscv/kernel/Makefile
 new file mode 100644
-index 000000000000..d3952b12597a
+index 000000000000..b6150e7508cb
 --- /dev/null
 +++ b/arch/riscv/kernel/Makefile
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +#
 +# Makefile for the RISC-V Linux kernel
 +#
@@ -6185,14 +6576,15 @@ index 000000000000..d3952b12597a
 +	   stacktrace.o vdso.o vdso/
 +
 +obj-$(CONFIG_EARLY_PRINTK)      += early_printk.o
++obj-$(CONFIG_SMP)		+= smpboot.o smp.o
 +
 +clean:
 diff --git a/arch/riscv/kernel/asm-offsets.c b/arch/riscv/kernel/asm-offsets.c
 new file mode 100644
-index 000000000000..795cb1d4d242
+index 000000000000..208b21cdad7a
 --- /dev/null
 +++ b/arch/riscv/kernel/asm-offsets.c
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,99 @@
 +#include <linux/kbuild.h>
 +#include <linux/sched.h>
 +#include <asm/thread_info.h>
@@ -6202,6 +6594,7 @@ index 000000000000..795cb1d4d242
 +{
 +	OFFSET(TASK_THREAD_INFO, task_struct, stack);
 +	OFFSET(THREAD_RA, task_struct, thread.ra);
++	OFFSET(THREAD_SP, task_struct, thread.sp);
 +	OFFSET(THREAD_S0, task_struct, thread.s[0]);
 +	OFFSET(THREAD_S1, task_struct, thread.s[1]);
 +	OFFSET(THREAD_S2, task_struct, thread.s[2]);
@@ -6215,10 +6608,46 @@ index 000000000000..795cb1d4d242
 +	OFFSET(THREAD_S10, task_struct, thread.s[10]);
 +	OFFSET(THREAD_S11, task_struct, thread.s[11]);
 +	OFFSET(THREAD_SP, task_struct, thread.sp);
++	OFFSET(TI_TASK, thread_info, task);
 +	OFFSET(TI_FLAGS, thread_info, flags);
++	OFFSET(TI_CPU, thread_info, cpu);
++
++	OFFSET(THREAD_F0,  task_struct, thread.fstate.f[0]);
++	OFFSET(THREAD_F1,  task_struct, thread.fstate.f[1]);
++	OFFSET(THREAD_F2,  task_struct, thread.fstate.f[2]);
++	OFFSET(THREAD_F3,  task_struct, thread.fstate.f[3]);
++	OFFSET(THREAD_F4,  task_struct, thread.fstate.f[4]);
++	OFFSET(THREAD_F5,  task_struct, thread.fstate.f[5]);
++	OFFSET(THREAD_F6,  task_struct, thread.fstate.f[6]);
++	OFFSET(THREAD_F7,  task_struct, thread.fstate.f[7]);
++	OFFSET(THREAD_F8,  task_struct, thread.fstate.f[8]);
++	OFFSET(THREAD_F9,  task_struct, thread.fstate.f[9]);
++	OFFSET(THREAD_F10, task_struct, thread.fstate.f[10]);
++	OFFSET(THREAD_F11, task_struct, thread.fstate.f[11]);
++	OFFSET(THREAD_F12, task_struct, thread.fstate.f[12]);
++	OFFSET(THREAD_F13, task_struct, thread.fstate.f[13]);
++	OFFSET(THREAD_F14, task_struct, thread.fstate.f[14]);
++	OFFSET(THREAD_F15, task_struct, thread.fstate.f[15]);
++	OFFSET(THREAD_F16, task_struct, thread.fstate.f[16]);
++	OFFSET(THREAD_F17, task_struct, thread.fstate.f[17]);
++	OFFSET(THREAD_F18, task_struct, thread.fstate.f[18]);
++	OFFSET(THREAD_F19, task_struct, thread.fstate.f[19]);
++	OFFSET(THREAD_F20, task_struct, thread.fstate.f[20]);
++	OFFSET(THREAD_F21, task_struct, thread.fstate.f[21]);
++	OFFSET(THREAD_F22, task_struct, thread.fstate.f[22]);
++	OFFSET(THREAD_F23, task_struct, thread.fstate.f[23]);
++	OFFSET(THREAD_F24, task_struct, thread.fstate.f[24]);
++	OFFSET(THREAD_F25, task_struct, thread.fstate.f[25]);
++	OFFSET(THREAD_F26, task_struct, thread.fstate.f[26]);
++	OFFSET(THREAD_F27, task_struct, thread.fstate.f[27]);
++	OFFSET(THREAD_F28, task_struct, thread.fstate.f[28]);
++	OFFSET(THREAD_F29, task_struct, thread.fstate.f[29]);
++	OFFSET(THREAD_F30, task_struct, thread.fstate.f[30]);
++	OFFSET(THREAD_F31, task_struct, thread.fstate.f[31]);
++	OFFSET(THREAD_FCSR, task_struct, thread.fstate.fcsr);
 +
 +	DEFINE(PT_SIZE, sizeof(struct pt_regs));
-+	OFFSET(PT_EPC, pt_regs, epc);
++	OFFSET(PT_SEPC, pt_regs, sepc);
 +	OFFSET(PT_RA, pt_regs, ra);
 +	OFFSET(PT_FP, pt_regs, s0);
 +	OFFSET(PT_S0, pt_regs, s0);
@@ -6251,16 +6680,16 @@ index 000000000000..795cb1d4d242
 +	OFFSET(PT_T5, pt_regs, t5);
 +	OFFSET(PT_T6, pt_regs, t6);
 +	OFFSET(PT_GP, pt_regs, gp);
-+	OFFSET(PT_STATUS, pt_regs, status);
-+	OFFSET(PT_BADVADDR, pt_regs, badvaddr);
-+	OFFSET(PT_CAUSE, pt_regs, cause);
++	OFFSET(PT_SSTATUS, pt_regs, sstatus);
++	OFFSET(PT_SBADADDR, pt_regs, sbadaddr);
++	OFFSET(PT_SCAUSE, pt_regs, scause);
 +}
 diff --git a/arch/riscv/kernel/cpu.c b/arch/riscv/kernel/cpu.c
 new file mode 100644
-index 000000000000..f663634245aa
+index 000000000000..40c848059070
 --- /dev/null
 +++ b/arch/riscv/kernel/cpu.c
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,41 @@
 +#include <linux/init.h>
 +#include <linux/seq_file.h>
 +
@@ -6268,23 +6697,29 @@ index 000000000000..f663634245aa
 +
 +static void *c_start(struct seq_file *m, loff_t *pos)
 +{
-+	return *pos < 1 ? (void *)1 : NULL;
++	*pos = cpumask_next(*pos - 1, cpu_online_mask);
++	if ((*pos) < nr_cpu_ids)
++		return (void *)(1 + *pos);
++	return NULL;
 +}
 +
 +static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 +{
-+	++*pos;
-+	return NULL;
++	(*pos)++;
++	return c_start(m, pos);
 +}
 +
 +static void c_stop(struct seq_file *m, void *v)
 +{
-+
 +}
 +
 +static int c_show(struct seq_file *m, void *v)
 +{
-+	seq_printf(m, "CPU info: PUNT!\n");
++	unsigned long hart_id = (unsigned long)v - 1;
++
++	seq_printf(m, "hart\t: %lu\n", hart_id);
++	seq_printf(m, "isa\t: RV%luG\n", sizeof(void *) * 8);
++	seq_printf(m, "\n");
 +	return 0;
 +}
 +
@@ -6340,10 +6775,10 @@ index 000000000000..9b9d69fe0c10
 +early_param("earlyprintk", setup_early_printk);
 diff --git a/arch/riscv/kernel/entry.S b/arch/riscv/kernel/entry.S
 new file mode 100644
-index 000000000000..df71bea148ab
+index 000000000000..38fa219a2ec9
 --- /dev/null
 +++ b/arch/riscv/kernel/entry.S
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,368 @@
 +#include <linux/init.h>
 +#include <linux/linkage.h>
 +
@@ -6353,6 +6788,7 @@ index 000000000000..df71bea148ab
 +#include <asm/thread_info.h>
 +#include <asm/asm-offsets.h>
 +
++	.text
 +	.altmacro
 +	.macro SAVE_ALL
 +	LOCAL _restore_kernel_sp
@@ -6399,26 +6835,27 @@ index 000000000000..df71bea148ab
 +	REG_S x30, PT_T5(sp)
 +	REG_S x31, PT_T6(sp)
 +
++	/* Disable FPU to detect illegal usage of
++	   floating point in kernel space */
++	li t0, SR_FS
++
 +	csrr s0, sscratch
-+	csrr s1, sstatus
++	csrrc s1, sstatus, t0
 +	csrr s2, sepc
 +	csrr s3, sbadaddr
 +	csrr s4, scause
 +	REG_S s0, PT_SP(sp)
-+	REG_S s1, PT_STATUS(sp)
-+	REG_S s2, PT_EPC(sp)
-+	REG_S s3, PT_BADVADDR(sp)
-+	REG_S s4, PT_CAUSE(sp)
++	REG_S s1, PT_SSTATUS(sp)
++	REG_S s2, PT_SEPC(sp)
++	REG_S s3, PT_SBADADDR(sp)
++	REG_S s4, PT_SCAUSE(sp)
 +	.endm
 +
 +	.macro RESTORE_ALL
-+	REG_L a0, PT_STATUS(sp)
-+	li a1, SR_PS | SR_PIE
-+	REG_L a2, PT_EPC(sp)
-+	csrc sstatus, a1
-+	and a0, a0, a1
++	REG_L a0, PT_SSTATUS(sp)
++	REG_L a2, PT_SEPC(sp)
++	csrw sstatus, a0
 +	csrw sepc, a2
-+	csrs sstatus, a0
 +
 +	REG_L x1,  PT_RA(sp)
 +	REG_L x3,  PT_GP(sp)
@@ -6464,45 +6901,43 @@ index 000000000000..df71bea148ab
 +	/* Compute address of current thread_info */
 +	li tp, ~(THREAD_SIZE-1)
 +	and tp, tp, sp
-+	/* Set the current thread pointer */
-+	REG_L tp, 0(tp)
++	/* Set current pointer */
++	REG_L tp, TI_TASK(tp)
 +
-+	csrr s0, scause
 +	la gp, _gp
 +	la ra, ret_from_exception
 +	/* MSB of cause differentiates between
 +	   interrupts and exceptions */
-+	bge s0, zero, 1f
++	bge s4, zero, 1f
 +
 +	/* Handle interrupts */
-+	slli a0, s0, 1
++	slli a0, s4, 1
 +	srli a0, a0, 1
-+	move a1, sp
++	move a1, sp /* pt_regs */
 +	tail do_IRQ
 +1:
 +	/* Handle syscalls */
-+	li s1, EXC_SYSCALL
-+	beq s0, s1, handle_syscall
++	li t0, EXC_SYSCALL
++	beq s4, t0, handle_syscall
 +
 +	/* Handle other exceptions */
-+	move  a0, sp /* pt_regs */
-+1:
-+	la s1, excp_vect_table
-+	la s2, excp_vect_table_end
-+	slli s0, s0, LGPTR
-+	add s1, s1, s0
++	slli t0, s4, LGPTR
++	la t1, excp_vect_table
++	la t2, excp_vect_table_end
++	move a0, sp /* pt_regs */
++	add t0, t1, t0
 +	/* Check if exception code lies within bounds */
-+	bgeu s1, s2, 1f
-+	REG_L s1, 0(s1)
-+	jr s1
++	bgeu t0, t2, 1f
++	REG_L t0, 0(t0)
++	jr t0
 +1:
 +	tail do_trap_unknown
 +
 +handle_syscall:
-+	/* Advance EPC to avoid executing the original
++	/* Advance SEPC to avoid executing the original
 +	   scall instruction on sret */
 +	addi s2, s2, 0x4
-+	REG_S s2, PT_EPC(sp)
++	REG_S s2, PT_SEPC(sp)
 +	/* System calls run with interrupts enabled */
 +	csrs sstatus, SR_IE
 +	li t0, __NR_syscalls
@@ -6521,7 +6956,7 @@ index 000000000000..df71bea148ab
 +	REG_S a0, PT_A0(sp)
 +
 +ret_from_exception:
-+	REG_L s0, PT_STATUS(sp)
++	REG_L s0, PT_SSTATUS(sp)
 +	csrc sstatus, SR_IE
 +	andi s0, s0, SR_PS
 +	bnez s0, restore_all
@@ -6572,7 +7007,7 @@ index 000000000000..df71bea148ab
 +
 +
 +/*
-+ * Register context switch
++ * Integer register context switch
 + * The callee-saved registers must be saved and restored.
 + * 
 + *   a0: previous task_struct (must be preserved across the switch)
@@ -6581,6 +7016,7 @@ index 000000000000..df71bea148ab
 +ENTRY(__switch_to)
 +	/* Save context into prev->thread */
 +	REG_S ra,  THREAD_RA(a0)
++	REG_S sp,  THREAD_SP(a0)
 +	REG_S s0,  THREAD_S0(a0)
 +	REG_S s1,  THREAD_S1(a0)
 +	REG_S s2,  THREAD_S2(a0)
@@ -6593,9 +7029,9 @@ index 000000000000..df71bea148ab
 +	REG_S s9,  THREAD_S9(a0)
 +	REG_S s10, THREAD_S10(a0)
 +	REG_S s11, THREAD_S11(a0)
-+	REG_S sp,  THREAD_SP(a0)
 +	/* Restore context from next->thread */
 +	REG_L ra,  THREAD_RA(a1)
++	REG_L sp,  THREAD_SP(a1)
 +	REG_L s0,  THREAD_S0(a1)
 +	REG_L s1,  THREAD_S1(a1)
 +	REG_L s2,  THREAD_S2(a1)
@@ -6608,10 +7044,91 @@ index 000000000000..df71bea148ab
 +	REG_L s9,  THREAD_S9(a1)
 +	REG_L s10, THREAD_S10(a1)
 +	REG_L s11, THREAD_S11(a1)
-+	REG_L sp,  THREAD_SP(a1)
 +	mv tp, a1 /* Next current pointer */
 +	ret
 +ENDPROC(__switch_to)
++
++ENTRY(__fstate_save)
++	li t1, SR_FS
++	csrs sstatus, t1
++	frcsr t0
++	fsd f0,  THREAD_F0(a0)
++	fsd f1,  THREAD_F1(a0)
++	fsd f2,  THREAD_F2(a0)
++	fsd f3,  THREAD_F3(a0)
++	fsd f4,  THREAD_F4(a0)
++	fsd f5,  THREAD_F5(a0)
++	fsd f6,  THREAD_F6(a0)
++	fsd f7,  THREAD_F7(a0)
++	fsd f8,  THREAD_F8(a0)
++	fsd f9,  THREAD_F9(a0)
++	fsd f10, THREAD_F10(a0)
++	fsd f11, THREAD_F11(a0)
++	fsd f12, THREAD_F12(a0)
++	fsd f13, THREAD_F13(a0)
++	fsd f14, THREAD_F14(a0)
++	fsd f15, THREAD_F15(a0)
++	fsd f16, THREAD_F16(a0)
++	fsd f17, THREAD_F17(a0)
++	fsd f18, THREAD_F18(a0)
++	fsd f19, THREAD_F19(a0)
++	fsd f20, THREAD_F20(a0)
++	fsd f21, THREAD_F21(a0)
++	fsd f22, THREAD_F22(a0)
++	fsd f23, THREAD_F23(a0)
++	fsd f24, THREAD_F24(a0)
++	fsd f25, THREAD_F25(a0)
++	fsd f26, THREAD_F26(a0)
++	fsd f27, THREAD_F27(a0)
++	fsd f28, THREAD_F28(a0)
++	fsd f29, THREAD_F29(a0)
++	fsd f30, THREAD_F30(a0)
++	fsd f31, THREAD_F31(a0)
++	sw t0, THREAD_FCSR(a0)
++	csrc sstatus, t1
++	ret
++ENDPROC(__fstate_save)
++
++ENTRY(__fstate_restore)
++	li t1, SR_FS
++	lw t0, THREAD_FCSR(a0)
++	csrs sstatus, t1
++	fld f0,  THREAD_F0(a0)
++	fld f1,  THREAD_F1(a0)
++	fld f2,  THREAD_F2(a0)
++	fld f3,  THREAD_F3(a0)
++	fld f4,  THREAD_F4(a0)
++	fld f5,  THREAD_F5(a0)
++	fld f6,  THREAD_F6(a0)
++	fld f7,  THREAD_F7(a0)
++	fld f8,  THREAD_F8(a0)
++	fld f9,  THREAD_F9(a0)
++	fld f10, THREAD_F10(a0)
++	fld f11, THREAD_F11(a0)
++	fld f12, THREAD_F12(a0)
++	fld f13, THREAD_F13(a0)
++	fld f14, THREAD_F14(a0)
++	fld f15, THREAD_F15(a0)
++	fld f16, THREAD_F16(a0)
++	fld f17, THREAD_F17(a0)
++	fld f18, THREAD_F18(a0)
++	fld f19, THREAD_F19(a0)
++	fld f20, THREAD_F20(a0)
++	fld f21, THREAD_F21(a0)
++	fld f22, THREAD_F22(a0)
++	fld f23, THREAD_F23(a0)
++	fld f24, THREAD_F24(a0)
++	fld f25, THREAD_F25(a0)
++	fld f26, THREAD_F26(a0)
++	fld f27, THREAD_F27(a0)
++	fld f28, THREAD_F28(a0)
++	fld f29, THREAD_F29(a0)
++	fld f30, THREAD_F30(a0)
++	fld f31, THREAD_F31(a0)
++	fscsr t0
++	csrc sstatus, t1
++	ret
++ENDPROC(__fstate_restore)
 +
 +
 +	.section ".rodata"
@@ -6632,18 +7149,27 @@ index 000000000000..df71bea148ab
 +
 diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
 new file mode 100644
-index 000000000000..52ffb7f5e565
+index 000000000000..39aa47e890b4
 --- /dev/null
 +++ b/arch/riscv/kernel/head.S
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,70 @@
 +#include <asm/thread_info.h>
++#include <asm/asm-offsets.h>
++#include <asm/asm.h>
 +#include <linux/init.h>
 +#include <linux/linkage.h>
++#include <asm/thread_info.h>
++#include <asm/page.h>
++#include <asm/csr.h>
 +
 +__INIT
 +ENTRY(_start)
 +	/* Load the global pointer (before any other use of la) */
 +	la gp, _gp
++
++	/* See if we're the main hart */
++	call sbi_hart_id
++	bnez a0, .Lsecondary_start
 +
 +	/* Clear the .bss segment */
 +	la a0, __bss_start
@@ -6657,9 +7183,39 @@ index 000000000000..52ffb7f5e565
 +	/* Initialize current task_struct pointer */
 +	la tp, init_task
 +
-+	tail start_kernel
-+END(_start)
++	/* Disable FPU to detect illegal usage of
++	   floating point in kernel space */
++	li t0, SR_FS
++	csrc sstatus, t0
 +
++	tail start_kernel
++
++.Lsecondary_start:
++#ifdef CONFIG_SMP
++	li a1, CONFIG_NR_CPUS
++	bgeu a0, a1, .Lsecondary_park
++
++	la a1, __cpu_up_stack_pointer
++	slli a0, a0, LGREG
++	add a0, a0, a1
++
++.Lwait_for_cpu_up:
++	REG_L sp, (a0)
++	beqz sp, .Lwait_for_cpu_up
++
++	/* Initialize task_struct pointer */
++	li tp, -THREAD_SIZE
++	add tp, tp, sp
++	REG_L tp, (tp)
++
++	tail smp_callin
++#endif
++
++.Lsecondary_park:
++	/* We lack SMP support or have too many harts, so park this hart */
++	wfi
++	j .Lsecondary_park
++END(_start)
 +
 +__PAGE_ALIGNED_BSS
 +	/* Empty zero page */
@@ -6669,20 +7225,24 @@ index 000000000000..52ffb7f5e565
 +END(empty_zero_page)
 diff --git a/arch/riscv/kernel/irq.c b/arch/riscv/kernel/irq.c
 new file mode 100644
-index 000000000000..8d83e3f67595
+index 000000000000..2fb41f7099a5
 --- /dev/null
 +++ b/arch/riscv/kernel/irq.c
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,65 @@
 +#include <linux/interrupt.h>
 +#include <linux/ftrace.h>
 +#include <linux/seq_file.h>
 +
 +#include <asm/ptrace.h>
 +#include <asm/sbi.h>
++#include <asm/smp.h>
 +
 +asmlinkage void __irq_entry do_IRQ(unsigned int irq, struct pt_regs *regs)
 +{
 +	struct pt_regs *old_regs;
++
++	if (irq == IRQ_SOFTWARE && handle_ipi())
++		return;
 +
 +	old_regs = set_irq_regs(regs);
 +	irq_enter();
@@ -6736,76 +7296,86 @@ index 000000000000..8d83e3f67595
 +}
 diff --git a/arch/riscv/kernel/process.c b/arch/riscv/kernel/process.c
 new file mode 100644
-index 000000000000..a7ac5d471363
+index 000000000000..06be32db0281
 --- /dev/null
 +++ b/arch/riscv/kernel/process.c
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,106 @@
 +#include <linux/kernel.h>
 +#include <linux/sched.h>
 +#include <linux/tick.h>
 +#include <linux/ptrace.h>
 +
 +#include <asm/unistd.h>
++#include <asm/uaccess.h>
 +#include <asm/processor.h>
 +#include <asm/csr.h>
 +#include <asm/string.h>
++#include <asm/switch_to.h>
 +
 +extern asmlinkage void ret_from_fork(void);
 +extern asmlinkage void ret_from_kernel_thread(void);
 +
-+#if 0
-+/*
-+ * Default to the generic definition until the RISC-V specification
-+ * incorporates architectural support an explicit sleep mode.
-+ */
 +void arch_cpu_idle(void)
 +{
++	wait_for_interrupt();
 +	local_irq_enable();
 +}
-+#endif
 +
 +void show_regs(struct pt_regs *regs)
 +{
 +	show_regs_print_info(KERN_DEFAULT);
 +
-+	printk("epc: " REG_FMT " ra : " REG_FMT " sp : " REG_FMT "\n",
-+		regs->epc, regs->ra, regs->sp);
-+	printk("gp : " REG_FMT " tp : " REG_FMT " t0 : " REG_FMT "\n",
++	printk("sepc: " REG_FMT " ra : " REG_FMT " sp : " REG_FMT "\n",
++		regs->sepc, regs->ra, regs->sp);
++	printk(" gp : " REG_FMT " tp : " REG_FMT " t0 : " REG_FMT "\n",
 +		regs->gp, regs->tp, regs->t0);
-+	printk("t1 : " REG_FMT " t2 : " REG_FMT " s0 : " REG_FMT "\n",
++	printk(" t1 : " REG_FMT " t2 : " REG_FMT " s0 : " REG_FMT "\n",
 +		regs->t1, regs->t2, regs->s0);
-+	printk("s1 : " REG_FMT " a0 : " REG_FMT " a1 : " REG_FMT "\n",
++	printk(" s1 : " REG_FMT " a0 : " REG_FMT " a1 : " REG_FMT "\n",
 +		regs->s1, regs->a0, regs->a1);
-+	printk("a2 : " REG_FMT " a3 : " REG_FMT " a4 : " REG_FMT "\n",
++	printk(" a2 : " REG_FMT " a3 : " REG_FMT " a4 : " REG_FMT "\n",
 +		regs->a2, regs->a3, regs->a4);
-+	printk("a5 : " REG_FMT " a6 : " REG_FMT " a7 : " REG_FMT "\n",
++	printk(" a5 : " REG_FMT " a6 : " REG_FMT " a7 : " REG_FMT "\n",
 +		regs->a5, regs->a6, regs->a7);
-+	printk("s2 : " REG_FMT " s3 : " REG_FMT " s4 : " REG_FMT "\n",
++	printk(" s2 : " REG_FMT " s3 : " REG_FMT " s4 : " REG_FMT "\n",
 +		regs->s2, regs->s3, regs->s4);
-+	printk("s5 : " REG_FMT " s6 : " REG_FMT " s7 : " REG_FMT "\n",
++	printk(" s5 : " REG_FMT " s6 : " REG_FMT " s7 : " REG_FMT "\n",
 +		regs->s5, regs->s6, regs->s7);
-+	printk("s8 : " REG_FMT " s9 : " REG_FMT " s10: " REG_FMT "\n",
++	printk(" s8 : " REG_FMT " s9 : " REG_FMT " s10: " REG_FMT "\n",
 +		regs->s8, regs->s9, regs->s10);
-+	printk("s11: " REG_FMT " t3 : " REG_FMT " t4 : " REG_FMT "\n",
++	printk(" s11: " REG_FMT " t3 : " REG_FMT " t4 : " REG_FMT "\n",
 +		regs->s11, regs->t3, regs->t4);
-+	printk("t5 : " REG_FMT " t6 : " REG_FMT "\n",
++	printk(" t5 : " REG_FMT " t6 : " REG_FMT "\n",
 +		regs->t5, regs->t6);
 +
-+	printk("status: " REG_FMT " badvaddr: " REG_FMT " cause: " REG_FMT "\n",
-+		regs->status, regs->badvaddr, regs->cause);
++	printk("sstatus: " REG_FMT " sbadaddr: " REG_FMT " scause: " REG_FMT "\n",
++		regs->sstatus, regs->sbadaddr, regs->scause);
 +}
 +
 +void start_thread(struct pt_regs *regs, unsigned long pc, 
 +	unsigned long sp)
 +{
-+	/* Remove supervisor privileges */
-+	regs->status &= ~(SR_PS);
-+	regs->epc = pc;
++	regs->sstatus = SR_PIE /* User mode, irqs on */ | SR_FS_INITIAL;
++	regs->sepc = pc;
 +	regs->sp = sp;
++	set_fs(USER_DS);
 +}
 +
 +void flush_thread(void)
 +{
++	/* Reset FPU context
++	 *	frm: round to nearest, ties to even (IEEE default)
++	 *	fflags: accrued exceptions cleared
++	 */
++	memset(&current->thread.fstate, 0,
++		sizeof(struct user_fpregs_struct));
++}
++
++int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
++{
++	fstate_save(src, task_pt_regs(src));
++	*dst = *src;
++	return 0;
 +}
 +
 +int copy_thread(unsigned long clone_flags, unsigned long usp,
@@ -6819,7 +7389,7 @@ index 000000000000..a7ac5d471363
 +		const register unsigned long gp __asm__ ("gp");
 +		memset(childregs, 0, sizeof(struct pt_regs));
 +		childregs->gp = gp;
-+		childregs->status = SR_PS;
++		childregs->sstatus = SR_PS | SR_PIE; /* Supervisor, irqs on */
 +
 +		p->thread.ra = (unsigned long)ret_from_kernel_thread;
 +		p->thread.s[0] = usp; /* fn */
@@ -6869,14 +7439,15 @@ index 000000000000..56828c4f27a8
 +}
 diff --git a/arch/riscv/kernel/reset.c b/arch/riscv/kernel/reset.c
 new file mode 100644
-index 000000000000..5f5536964a3b
+index 000000000000..b283befb82f7
 --- /dev/null
 +++ b/arch/riscv/kernel/reset.c
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,19 @@
 +#include <linux/reboot.h>
 +#include <linux/export.h>
++#include <asm/sbi.h>
 +
-+void (*pm_power_off)(void);
++void (*pm_power_off)(void) = machine_power_off;
 +EXPORT_SYMBOL(pm_power_off);
 +
 +void machine_restart(char *cmd)
@@ -6889,13 +7460,14 @@ index 000000000000..5f5536964a3b
 +
 +void machine_power_off(void)
 +{
++  sbi_shutdown();
 +}
 diff --git a/arch/riscv/kernel/sbi.S b/arch/riscv/kernel/sbi.S
 new file mode 100644
-index 000000000000..e7638ec90d2a
+index 000000000000..08d19e49cce1
 --- /dev/null
 +++ b/arch/riscv/kernel/sbi.S
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,10 @@
 +.globl sbi_hart_id; sbi_hart_id = -2048
 +.globl sbi_num_harts; sbi_num_harts = -2032
 +.globl sbi_query_memory; sbi_query_memory = -2016
@@ -6903,13 +7475,15 @@ index 000000000000..e7638ec90d2a
 +.globl sbi_send_device_request; sbi_send_device_request = -1984
 +.globl sbi_receive_device_response; sbi_receive_device_response = -1968
 +.globl sbi_send_ipi; sbi_send_ipi = -1952
-+.globl sbi_timebase; sbi_timebase = -1936
++.globl sbi_clear_ipi; sbi_clear_ipi = -1936
++.globl sbi_timebase; sbi_timebase = -1920
++.globl sbi_shutdown; sbi_shutdown = -1904
 diff --git a/arch/riscv/kernel/setup.c b/arch/riscv/kernel/setup.c
 new file mode 100644
-index 000000000000..d88204a87917
+index 000000000000..e35ba9a4d9b3
 --- /dev/null
 +++ b/arch/riscv/kernel/setup.c
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,115 @@
 +#include <linux/init.h>
 +#include <linux/mm.h>
 +#include <linux/bootmem.h>
@@ -6919,6 +7493,7 @@ index 000000000000..d88204a87917
 +#include <asm/setup.h>
 +#include <asm/sections.h>
 +#include <asm/pgtable.h>
++#include <asm/smp.h>
 +#include <asm/sbi.h>
 +
 +static char __initdata command_line[COMMAND_LINE_SIZE];
@@ -7019,14 +7594,17 @@ index 000000000000..d88204a87917
 +	init_mm.brk        = (unsigned long) _end;
 +
 +	setup_bootmem();
++#ifdef CONFIG_SMP
++	setup_smp();
++#endif
 +	paging_init();
 +}
 diff --git a/arch/riscv/kernel/signal.c b/arch/riscv/kernel/signal.c
 new file mode 100644
-index 000000000000..3cb1378d3d07
+index 000000000000..1a986d44d25d
 --- /dev/null
 +++ b/arch/riscv/kernel/signal.c
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,236 @@
 +#include <linux/signal.h>
 +#include <linux/uaccess.h>
 +#include <linux/syscalls.h>
@@ -7035,6 +7613,7 @@ index 000000000000..3cb1378d3d07
 +
 +#include <asm/ucontext.h>
 +#include <asm/vdso.h>
++#include <asm/switch_to.h>
 +#include <asm/csr.h>
 +
 +#define DEBUG_SIG 0
@@ -7047,8 +7626,15 @@ index 000000000000..3cb1378d3d07
 +static long restore_sigcontext(struct pt_regs *regs,
 +	struct sigcontext __user *sc)
 +{
-+	/* sigcontext is laid out the same as the start of pt_regs */
-+	return __copy_from_user(regs, sc, sizeof(*sc));
++	struct task_struct *task = current;
++	long err;
++	/* sc_regs is structured the same as the start of pt_regs */
++	err = __copy_from_user(regs, &sc->sc_regs, sizeof(sc->sc_regs));
++	err |= __copy_from_user(&task->thread.fstate, &sc->sc_fpregs,
++		sizeof(sc->sc_fpregs));
++	if (likely(!err))
++		fstate_restore(task, regs);
++	return err;
 +}
 +
 +SYSCALL_DEFINE0(rt_sigreturn)
@@ -7085,7 +7671,7 @@ index 000000000000..3cb1378d3d07
 +		pr_info_ratelimited("%s[%d]: bad frame in %s: "
 +			"frame=%p pc=%p sp=%p\n",
 +			task->comm, task_pid_nr(task), __func__,
-+			frame, (void *)regs->epc, (void *)regs->sp);
++			frame, (void *)regs->sepc, (void *)regs->sp);
 +	}
 +	force_sig(SIGSEGV, task);
 +	return 0;
@@ -7094,8 +7680,14 @@ index 000000000000..3cb1378d3d07
 +static long setup_sigcontext(struct sigcontext __user *sc,
 +	struct pt_regs *regs)
 +{
-+	/* sigcontext is laid out the same as the start of pt_regs */
-+	return __copy_to_user(sc, regs, sizeof(*sc));
++	struct task_struct *task = current;
++	long err;
++	/* sc_regs is structured the same as the start of pt_regs */
++	err = __copy_to_user(&sc->sc_regs, regs, sizeof(sc->sc_regs));
++	fstate_save(task, regs);
++	err |= __copy_to_user(&sc->sc_fpregs, &task->thread.fstate,
++		sizeof(sc->sc_fpregs));
++	return err;
 +}
 +
 +static inline void __user *get_sigframe(struct ksignal *ksig,
@@ -7126,7 +7718,7 @@ index 000000000000..3cb1378d3d07
 +	struct pt_regs *regs)
 +{
 +	struct rt_sigframe __user *frame;
-+	int err = 0;
++	long err = 0;
 +
 +	frame = get_sigframe(ksig, regs, sizeof(*frame));
 +	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
@@ -7154,7 +7746,7 @@ index 000000000000..3cb1378d3d07
 +	 * We always pass siginfo and mcontext, regardless of SA_SIGINFO,
 +	 * since some things rely on this (e.g. glibc's debug/segfault.c).
 +	 */
-+	regs->epc = (unsigned long)ksig->ka.sa.sa_handler;
++	regs->sepc = (unsigned long)ksig->ka.sa.sa_handler;
 +	regs->sp = (unsigned long)frame;
 +	regs->a0 = ksig->sig;                     /* a0: signal number */
 +	regs->a1 = (unsigned long)(&frame->info); /* a1: siginfo pointer */
@@ -7163,7 +7755,7 @@ index 000000000000..3cb1378d3d07
 +#if DEBUG_SIG
 +	pr_info("SIG deliver (%s:%d): sig=%d pc=%p ra=%p sp=%p\n",
 +		current->comm, task_pid_nr(current), ksig->sig,
-+		(void *)regs->epc, (void *)regs->ra, frame);
++		(void *)regs->sepc, (void *)regs->ra, frame);
 +#endif
 +
 +	return 0;
@@ -7175,7 +7767,7 @@ index 000000000000..3cb1378d3d07
 +	int ret;
 +
 +	/* Are we from a system call? */
-+	if (regs->cause == EXC_SYSCALL) {
++	if (regs->scause == EXC_SYSCALL) {
 +		/* If so, check system call restarting.. */
 +		switch (regs->a0) {
 +		case -ERESTART_RESTARTBLOCK:
@@ -7190,7 +7782,7 @@ index 000000000000..3cb1378d3d07
 +			}
 +			/* fallthrough */
 +		case -ERESTARTNOINTR:
-+			regs->epc -= 0x4;
++			regs->sepc -= 0x4;
 +			break;
 +		}
 +	}
@@ -7212,17 +7804,17 @@ index 000000000000..3cb1378d3d07
 +	}
 +
 +	/* Did we come from a system call? */
-+	if (regs->cause == EXC_SYSCALL) {
++	if (regs->scause == EXC_SYSCALL) {
 +		/* Restart the system call - no handlers present */
 +		switch (regs->a0) {
 +		case -ERESTARTNOHAND:
 +		case -ERESTARTSYS:
 +		case -ERESTARTNOINTR:
-+			regs->epc -= 0x4;
++			regs->sepc -= 0x4;
 +			break;
 +		case -ERESTART_RESTARTBLOCK:
 +			regs->a7 = __NR_restart_syscall;
-+			regs->epc -= 0x4;
++			regs->sepc -= 0x4;
 +			break;
 +		}
 +	}
@@ -7248,6 +7840,193 @@ index 000000000000..3cb1378d3d07
 +		clear_thread_flag(TIF_NOTIFY_RESUME);
 +		tracehook_notify_resume(regs);
 +	}
++}
+diff --git a/arch/riscv/kernel/smp.c b/arch/riscv/kernel/smp.c
+new file mode 100644
+index 000000000000..6eb8ed1a9082
+--- /dev/null
++++ b/arch/riscv/kernel/smp.c
+@@ -0,0 +1,102 @@
++#include <linux/smp.h>
++#include <linux/sched.h>
++
++#include <asm/sbi.h>
++#include <asm/tlbflush.h>
++#include <asm/cacheflush.h>
++
++/* A collection of single bit ipi messages.  */
++static struct {
++	unsigned long bits ____cacheline_aligned;
++} ipi_data[NR_CPUS] __cacheline_aligned;
++
++enum ipi_message_type {
++	IPI_RESCHEDULE,
++	IPI_CALL_FUNC,
++	IPI_CALL_FUNC_SINGLE,
++	IPI_MAX
++};
++
++bool handle_ipi(void)
++{
++	unsigned long *pending_ipis = &ipi_data[smp_processor_id()].bits;
++	unsigned long ops;
++
++	/* Clear pending IPI */
++	if (!sbi_clear_ipi())
++	  return false;
++
++	mb();	/* Order interrupt and bit testing. */
++	while ((ops = xchg(pending_ipis, 0)) != 0) {
++		mb();	/* Order bit clearing and data access. */
++
++		if (ops & (1 << IPI_RESCHEDULE))
++			scheduler_ipi();
++
++		if (ops & (1 << IPI_CALL_FUNC))
++			generic_smp_call_function_interrupt();
++
++		if (ops & (1 << IPI_CALL_FUNC_SINGLE))
++			generic_smp_call_function_single_interrupt();
++
++		BUG_ON((ops >> IPI_MAX) != 0);
++
++		mb();	/* Order data access and bit testing. */
++	}
++
++	return true;
++}
++
++static void
++send_ipi_message(const struct cpumask *to_whom, enum ipi_message_type operation)
++{
++	int i;
++
++	mb();
++	for_each_cpu(i, to_whom)
++		set_bit(operation, &ipi_data[i].bits);
++
++	mb();
++	for_each_cpu(i, to_whom)
++		sbi_send_ipi(i);
++}
++
++void arch_send_call_function_ipi_mask(struct cpumask *mask)
++{
++	send_ipi_message(mask, IPI_CALL_FUNC);
++}
++
++void arch_send_call_function_single_ipi(int cpu)
++{
++	send_ipi_message(cpumask_of(cpu), IPI_CALL_FUNC_SINGLE);
++}
++
++void smp_send_stop(void)
++{
++	panic("TODO smp_send_stop");
++}
++
++void smp_send_reschedule(int cpu)
++{
++	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
++}
++
++static void ipi_flush_icache_all(void *unused)
++{
++	local_flush_icache_all();
++}
++
++void flush_icache_range(uintptr_t start, uintptr_t end)
++{
++	on_each_cpu(ipi_flush_icache_all, NULL, 1);
++}
++
++static void ipi_flush_tlb_all(void *unused)
++{
++	local_flush_tlb_all();
++}
++
++void flush_tlb_all(void)
++{
++	on_each_cpu(ipi_flush_tlb_all, NULL, 1);
++}
+diff --git a/arch/riscv/kernel/smpboot.c b/arch/riscv/kernel/smpboot.c
+new file mode 100644
+index 000000000000..c225845e3a14
+--- /dev/null
++++ b/arch/riscv/kernel/smpboot.c
+@@ -0,0 +1,73 @@
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/mm.h>
++#include <linux/sched.h>
++#include <linux/kernel_stat.h>
++#include <linux/bootmem.h>
++#include <linux/notifier.h>
++#include <linux/cpu.h>
++#include <linux/percpu.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/irq.h>
++#include <asm/mmu_context.h>
++#include <asm/tlbflush.h>
++#include <asm/sections.h>
++#include <asm/sbi.h>
++
++void *__cpu_up_stack_pointer[NR_CPUS];
++
++void __init smp_prepare_boot_cpu(void)
++{
++}
++
++void __init smp_prepare_cpus(unsigned int max_cpus)
++{
++}
++
++void __init setup_smp(void)
++{
++	int i, num_cpus = sbi_num_harts();
++
++	for (i = 0; i < min(num_cpus, NR_CPUS); i++) {
++		set_cpu_possible(i, true);
++		set_cpu_present(i, true);
++	}
++}
++
++int __cpu_up(unsigned int cpu, struct task_struct *tidle)
++{
++	/* Signal cpu to start */
++	__cpu_up_stack_pointer[cpu] = task_stack_page(tidle) + THREAD_SIZE;
++
++	while (!cpu_online(cpu))
++		;
++	
++	return 0;
++}
++
++void __init smp_cpus_done(unsigned int max_cpus)
++{
++}
++
++/*
++ * C entry point for a secondary processor.
++ */
++asmlinkage void __init smp_callin(void)
++{
++	struct mm_struct *mm = &init_mm;
++
++	/* All kernel threads share the same mm context.  */
++	atomic_inc(&mm->mm_count);
++	current->active_mm = mm;
++
++	trap_init();
++	init_clockevent();
++	notify_cpu_starting(smp_processor_id());
++	set_cpu_online(smp_processor_id(), 1);
++	local_flush_tlb_all();
++	local_irq_enable();
++	preempt_disable();
++	cpu_startup_entry(CPUHP_ONLINE);
 +}
 diff --git a/arch/riscv/kernel/stacktrace.c b/arch/riscv/kernel/stacktrace.c
 new file mode 100644
@@ -7512,10 +8291,10 @@ index 000000000000..badab2e19dbf
 +};
 diff --git a/arch/riscv/kernel/time.c b/arch/riscv/kernel/time.c
 new file mode 100644
-index 000000000000..9685a7af370b
+index 000000000000..68b9a91d1c30
 --- /dev/null
 +++ b/arch/riscv/kernel/time.c
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,94 @@
 +#include <linux/clocksource.h>
 +#include <linux/clockchips.h>
 +#include <linux/interrupt.h>
@@ -7525,12 +8304,19 @@ index 000000000000..9685a7af370b
 +#include <asm/csr.h>
 +#include <asm/sbi.h>
 +
++static DEFINE_PER_CPU(struct clock_event_device, clock_event);
++
 +static int riscv_timer_set_next_event(unsigned long delta,
 +	struct clock_event_device *evdev)
 +{
++	unsigned long new_timecmp;
++
 +	/* Set comparator */
-+	csr_write(stimecmp, csr_read(stime) + delta);
-+	return 0;
++	new_timecmp = csr_read(stime) + delta;
++	csr_write(stimecmp, new_timecmp);
++
++	/* Timer overflowed if high bit of subtraction is clear */
++	return (int32_t)(csr_read(stime) - new_timecmp) >= 0 ? -ETIME : 0;
 +}
 +
 +static void riscv_timer_set_mode(enum clock_event_mode mode,
@@ -7548,19 +8334,10 @@ index 000000000000..9685a7af370b
 +	}
 +}
 +
-+static struct clock_event_device riscv_clockevent = {
-+	.name = "riscv_timer_clockevent",
-+	.features = CLOCK_EVT_FEAT_ONESHOT,
-+	.rating = 300,
-+	.set_next_event = riscv_timer_set_next_event,
-+	.set_mode = riscv_timer_set_mode,
-+};
-+
-+static irqreturn_t timer_interrupt(int irq, void *dev_id)
++irqreturn_t timer_interrupt(int irq, void *dev_id)
 +{
-+	struct clock_event_device *evdev;
-+
-+	evdev = dev_id;
++	int cpu = smp_processor_id();
++	struct clock_event_device *evdev = &per_cpu(clock_event, cpu);
 +	evdev->event_handler(evdev);
 +	return IRQ_HANDLED;
 +}
@@ -7569,19 +8346,18 @@ index 000000000000..9685a7af370b
 +	.handler = timer_interrupt,
 +	.flags = IRQF_DISABLED | IRQF_TIMER,
 +	.name = "timer",
-+	.dev_id = &riscv_clockevent,
 +};
 +
 +
-+static cycle_t riscv_rdcycle(struct clocksource *cs)
++static cycle_t riscv_rdtime(struct clocksource *cs)
 +{
-+	return csr_read(cycle);
++	return csr_read(stime);
 +}
 +
 +static struct clocksource riscv_clocksource = {
 +	.name = "riscv_clocksource",
 +	.rating = 300,
-+	.read = riscv_rdcycle,
++	.read = riscv_rdtime,
 +#ifdef CONFIG_64BITS
 +	.mask = CLOCKSOURCE_MASK(64),
 +#else
@@ -7590,23 +8366,35 @@ index 000000000000..9685a7af370b
 +	.flags = CLOCK_SOURCE_IS_CONTINUOUS,
 +};
 +
++void __init init_clockevent(void)
++{
++	int cpu = smp_processor_id();
++	struct clock_event_device *ce = &per_cpu(clock_event, cpu);
++
++	*ce = (struct clock_event_device){
++		.name = "riscv_timer_clockevent",
++		.features = CLOCK_EVT_FEAT_ONESHOT,
++		.rating = 300,
++		.cpumask = cpumask_of(cpu),
++		.set_mode = riscv_timer_set_mode,
++		.set_next_event = riscv_timer_set_next_event,
++	};
++
++	clockevents_config_and_register(ce, sbi_timebase(), 100, 0x7fffffff);
++}
 +
 +void __init time_init(void)
 +{
-+	u32 freq = sbi_timebase();
-+
-+	clocksource_register_hz(&riscv_clocksource, freq);
++	clocksource_register_hz(&riscv_clocksource, sbi_timebase());
 +	setup_irq(IRQ_TIMER, &timer_irq);
-+	riscv_clockevent.cpumask = cpumask_of(0);
-+	clockevents_config_and_register(&riscv_clockevent,
-+		freq, 100, 0xffffffff);
++	init_clockevent();
 +}
 diff --git a/arch/riscv/kernel/traps.c b/arch/riscv/kernel/traps.c
 new file mode 100644
-index 000000000000..7a01f92b110d
+index 000000000000..f099a9b7cfb2
 --- /dev/null
 +++ b/arch/riscv/kernel/traps.c
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,148 @@
 +#include <linux/kernel.h>
 +#include <linux/init.h>
 +#include <linux/sched.h>
@@ -7641,7 +8429,7 @@ index 000000000000..7a01f92b110d
 +	print_modules();
 +	show_regs(regs);
 +
-+	ret = notify_die(DIE_OOPS, str, regs, 0, regs->cause, SIGSEGV);
++	ret = notify_die(DIE_OOPS, str, regs, 0, regs->scause, SIGSEGV);
 +
 +	bust_spinlocks(0);
 +	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
@@ -7694,21 +8482,18 @@ index 000000000000..7a01f92b110d
 +	}
 +}
 +
-+#define DO_ERROR_INFO(name, signo, code, addr, str)			\
++#define DO_ERROR_INFO(name, signo, code, str)				\
 +asmlinkage void name(struct pt_regs *regs)				\
 +{									\
-+	do_trap_error(regs, signo, code, addr(regs), "Oops - " str);	\
++	do_trap_error(regs, signo, code, regs->sepc, "Oops - " str);	\
 +}
 +
-+#define GET_EPC(regs)		((regs)->epc)
-+#define GET_BADVADDR(regs)	((regs)->badvaddr)
-+
 +DO_ERROR_INFO(do_trap_unknown,
-+	SIGILL, ILL_ILLTRP, GET_EPC, "unknown exception");
++	SIGILL, ILL_ILLTRP, "unknown exception");
 +DO_ERROR_INFO(do_trap_insn_misaligned,
-+	SIGBUS, BUS_ADRALN, GET_EPC, "instruction address misaligned");
++	SIGBUS, BUS_ADRALN, "instruction address misaligned");
 +DO_ERROR_INFO(do_trap_insn_illegal,
-+	SIGILL, ILL_ILLOPC, GET_EPC, "illegal instruction");
++	SIGILL, ILL_ILLOPC, "illegal instruction");
 +
 +asmlinkage void do_trap_break(struct pt_regs *regs)
 +{
@@ -7716,12 +8501,12 @@ index 000000000000..7a01f92b110d
 +	if (!user_mode(regs)) {
 +		enum bug_trap_type type;
 +
-+		type = report_bug(regs->epc, regs);
++		type = report_bug(regs->sepc, regs);
 +		switch (type) {
 +		case BUG_TRAP_TYPE_NONE:
 +			break;
 +		case BUG_TRAP_TYPE_WARN:
-+			regs->epc += sizeof(bug_insn_t);
++			regs->sepc += sizeof(bug_insn_t);
 +			return;
 +		case BUG_TRAP_TYPE_BUG:
 +			die(regs, "Kernel BUG");
@@ -7729,8 +8514,8 @@ index 000000000000..7a01f92b110d
 +	}
 +#endif /* CONFIG_GENERIC_BUG */
 +
-+	do_trap_siginfo(SIGTRAP, TRAP_BRKPT, regs->epc, current);
-+	regs->epc += 0x4;
++	do_trap_siginfo(SIGTRAP, TRAP_BRKPT, regs->sepc, current);
++	regs->sepc += 0x4;
 +}
 +
 +#ifdef CONFIG_GENERIC_BUG
@@ -7750,6 +8535,8 @@ index 000000000000..7a01f92b110d
 +{
 +	/* Clear the IPI exception that started the processor */
 +	csr_clear(sip, SIE_SSIE);
++	/* Enable software interrupts */
++	csr_set(sie, SIE_SSIE);
 +	/* Set sup0 scratch register to 0, indicating to exception vector
 +	   that we are presently executing in the kernel */
 +	csr_write(sscratch, 0);
@@ -8050,13 +8837,14 @@ index 000000000000..dd82fbfb5e54
 +
 diff --git a/arch/riscv/kernel/vmlinux.lds.S b/arch/riscv/kernel/vmlinux.lds.S
 new file mode 100644
-index 000000000000..2350b3125be4
+index 000000000000..e60e39a7677d
 --- /dev/null
 +++ b/arch/riscv/kernel/vmlinux.lds.S
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,66 @@
 +#define LOAD_OFFSET PAGE_OFFSET
 +#include <asm/vmlinux.lds.h>
 +#include <asm/page.h>
++#include <asm/cache.h>
 +#include <asm/thread_info.h>
 +
 +OUTPUT_ARCH(riscv)
@@ -8073,6 +8861,7 @@ index 000000000000..2350b3125be4
 +	HEAD_TEXT_SECTION
 +	INIT_TEXT_SECTION(PAGE_SIZE)
 +	INIT_DATA_SECTION(16)
++	PERCPU_SECTION(L1_CACHE_BYTES)
 +	__init_end = .;
 +
 +	.text : {
@@ -8624,7 +9413,7 @@ index 000000000000..36ebe6feb5d6
 +obj-y := init.o fault.o extable.o ioremap.o
 diff --git a/arch/riscv/mm/extable.c b/arch/riscv/mm/extable.c
 new file mode 100644
-index 000000000000..48767f2a0e22
+index 000000000000..a6d51775a3c1
 --- /dev/null
 +++ b/arch/riscv/mm/extable.c
 @@ -0,0 +1,14 @@
@@ -8635,16 +9424,16 @@ index 000000000000..48767f2a0e22
 +{
 +	const struct exception_table_entry *fixup;
 +
-+	fixup = search_exception_tables(regs->epc);
++	fixup = search_exception_tables(regs->sepc);
 +	if (fixup) {
-+		regs->epc = fixup->fixup;
++		regs->sepc = fixup->fixup;
 +		return 1;
 +	}
 +	return 0;
 +}
 diff --git a/arch/riscv/mm/fault.c b/arch/riscv/mm/fault.c
 new file mode 100644
-index 000000000000..0e2e72df5d68
+index 000000000000..4cb433e86aae
 --- /dev/null
 +++ b/arch/riscv/mm/fault.c
 @@ -0,0 +1,249 @@
@@ -8671,8 +9460,8 @@ index 000000000000..0e2e72df5d68
 +	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 +	int fault, code = SEGV_MAPERR;
 +
-+	cause = regs->cause;
-+	addr = regs->badvaddr;
++	cause = regs->scause;
++	addr = regs->sbadaddr;
 +
 +	tsk = current;
 +	mm = tsk->mm;
@@ -8690,7 +9479,7 @@ index 000000000000..0e2e72df5d68
 +		goto vmalloc_fault;
 +
 +	/* Enable interrupts if they were enabled in the parent context. */
-+	if (likely(regs->status & SR_PIE))
++	if (likely(regs->sstatus & SR_PIE))
 +		local_irq_enable();
 +
 +	/*
@@ -8899,7 +9688,7 @@ index 000000000000..0e2e72df5d68
 +}
 diff --git a/arch/riscv/mm/init.c b/arch/riscv/mm/init.c
 new file mode 100644
-index 000000000000..0a3729aca7db
+index 000000000000..edcb1174d027
 --- /dev/null
 +++ b/arch/riscv/mm/init.c
 @@ -0,0 +1,84 @@
@@ -8959,7 +9748,7 @@ index 000000000000..0a3729aca7db
 +	init_mm.pgd = (pgd_t *)__va(csr_read(sptbr));
 +
 +	setup_zero_page();
-+	flush_tlb_all();
++	local_flush_tlb_all();
 +	zone_sizes_init();
 +}
 +

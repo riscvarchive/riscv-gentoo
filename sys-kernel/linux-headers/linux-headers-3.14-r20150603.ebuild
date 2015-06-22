@@ -1,7 +1,7 @@
 # Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # gentoo-x86: sys-kernel/linux-headers-3.14
-# riscv-linux: 21869ddbaa31007de375368a5c353e2509a55f24
+# riscv-linux: 4da7416c2a0d07221678c1f0afff7be87af2e728
 
 EAPI="4"
 
@@ -28,7 +28,6 @@ src_unpack() {
 
 src_prepare() {
         patch -p1 < "${FILESDIR}/${P}-riscv-${PR}.patch" || die "RISC-V"
-        epatch "${FILESDIR}/${P}-riscv-${PR}-uapi.patch"
 	[[ -n ${PATCH_VER} ]] && EPATCH_SUFFIX="patch" epatch "${WORKDIR}"/${PV}
 }
 
