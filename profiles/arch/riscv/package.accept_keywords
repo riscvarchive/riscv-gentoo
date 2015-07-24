@@ -110,3 +110,6 @@ virtual/ssh amd64
 # @system packages that won't build with RISC-V tools because they're
 # newer than Gentoo's tools.
 =sys-libs/ncurses-5.9-r4 **
+
+# Not it @system, but didn't require any porting effort
+media-libs/opencv amd64
