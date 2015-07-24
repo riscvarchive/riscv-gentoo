@@ -27,6 +27,7 @@ dev-lang/python amd64
 dev-lang/python-exec amd64
 dev-libs/expat amd64
 dev-libs/gmp amd64
+dev-libs/iniparser amd64
 dev-libs/libpcre amd64
 dev-libs/libpipeline amd64
 dev-libs/mpc amd64
