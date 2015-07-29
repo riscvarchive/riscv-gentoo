@@ -113,4 +113,4 @@ virtual/ssh amd64
 
 # Not it @system, but didn't require any porting effort
 media-libs/opencv amd64
-~dev-libs/protobuf-2.6.3 ~amd64
+~dev-libs/protobuf-2.6.1 ~amd64
