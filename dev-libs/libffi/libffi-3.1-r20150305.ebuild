@@ -1,6 +1,8 @@
 # Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # $Header: /var/cvsroot/gentoo-x86/dev-libs/libffi/libffi-3.1-r3.ebuild,v 1.2 2014/08/10 20:35:34 slyfox Exp $
+# gentoo-x86: ?
+# riscv-libffi: 53c800ba2fb3e48f6281f11086456d0a187ad985
 
 EAPI=5
 inherit eutils libtool multilib multilib-minimal toolchain-funcs

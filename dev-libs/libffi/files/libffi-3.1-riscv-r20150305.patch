@@ -1,5 +1,5 @@
 diff --git a/libffi-3.1/Makefile.am b/libffi-3.1/Makefile.am
-index 1dcdc81..d3e737f 100644
+index 1dcdc8110e69..d3e737faf9b4 100644
 --- a/libffi-3.1/Makefile.am
 +++ b/libffi-3.1/Makefile.am
 @@ -8,7 +8,7 @@ SUBDIRS = include testsuite man
@@ -30,7 +30,7 @@ index 1dcdc81..d3e737f 100644
  nodist_libffi_la_SOURCES += src/bfin/ffi.c src/bfin/sysv.S
  endif
 diff --git a/libffi-3.1/Makefile.in b/libffi-3.1/Makefile.in
-index 4a57abd..7f4f4fe 100644
+index 4a57abd3c11d..7f4f4fe8af50 100644
 --- a/libffi-3.1/Makefile.in
 +++ b/libffi-3.1/Makefile.in
 @@ -82,53 +82,54 @@ host_triplet = @host@
@@ -366,7 +366,7 @@ index 4a57abd..7f4f4fe 100644
  	maintainer-clean-generic maintainer-clean-vti
 diff --git a/libffi-3.1/README.md b/libffi-3.1/README.md
 new file mode 100644
-index 0000000..d1a0b77
+index 000000000000..d1a0b77452cb
 --- /dev/null
 +++ b/libffi-3.1/README.md
 @@ -0,0 +1,23 @@
@@ -394,7 +394,7 @@ index 0000000..d1a0b77
 +../../misc/run_test.sh <test_name.c>
 +```
 diff --git a/libffi-3.1/aclocal.m4 b/libffi-3.1/aclocal.m4
-index 6292fba..db932a6 100644
+index 6292fbab7aa0..db932a6aeabc 100644
 --- a/libffi-3.1/aclocal.m4
 +++ b/libffi-3.1/aclocal.m4
 @@ -1,4 +1,4 @@
@@ -616,7 +616,7 @@ index 6292fba..db932a6 100644
  
  # Copyright (C) 1996-2013 Free Software Foundation, Inc.
 diff --git a/libffi-3.1/config.sub b/libffi-3.1/config.sub
-index c765b34..5d14ffc 100755
+index c765b34b7b0e..5d14ffcda790 100755
 --- a/libffi-3.1/config.sub
 +++ b/libffi-3.1/config.sub
 @@ -1,8 +1,8 @@
@@ -783,7 +783,7 @@ index c765b34..5d14ffc 100755
  		os=-coff
  		;;
 diff --git a/libffi-3.1/configure b/libffi-3.1/configure
-index a05785e..d9fee55 100755
+index a05785eaff73..d9fee55e7661 100755
 --- a/libffi-3.1/configure
 +++ b/libffi-3.1/configure
 @@ -726,6 +726,8 @@ BFIN_FALSE
@@ -1107,7 +1107,7 @@ index a05785e..d9fee55 100755
    as_fn_error $? "conditional \"MIPS\" was never defined.
  Usually this means the macro was only invoked conditionally." "$LINENO" 5
 diff --git a/libffi-3.1/configure.ac b/libffi-3.1/configure.ac
-index d3b8b99..9e4049c 100644
+index d3b8b99be1d4..9e4049c7c2c0 100644
 --- a/libffi-3.1/configure.ac
 +++ b/libffi-3.1/configure.ac
 @@ -59,6 +59,7 @@ fi
@@ -1149,7 +1149,7 @@ index d3b8b99..9e4049c 100644
  AM_CONDITIONAL(BFIN, test x$TARGET = xBFIN)
  AM_CONDITIONAL(SPARC, test x$TARGET = xSPARC)
 diff --git a/libffi-3.1/fficonfig.h.in b/libffi-3.1/fficonfig.h.in
-index cdef91b..c5a784f 100644
+index cdef91b88feb..c5a784f2fa42 100644
 --- a/libffi-3.1/fficonfig.h.in
 +++ b/libffi-3.1/fficonfig.h.in
 @@ -124,9 +124,6 @@
@@ -1163,7 +1163,7 @@ index cdef91b..c5a784f 100644
  #undef PACKAGE
  
 diff --git a/libffi-3.1/include/Makefile.in b/libffi-3.1/include/Makefile.in
-index 9d747e8..61e41a7 100644
+index 9d747e80e54e..61e41a77c441 100644
 --- a/libffi-3.1/include/Makefile.in
 +++ b/libffi-3.1/include/Makefile.in
 @@ -1,4 +1,4 @@
@@ -1173,7 +1173,7 @@ index 9d747e8..61e41a7 100644
  
  # Copyright (C) 1994-2013 Free Software Foundation, Inc.
 diff --git a/libffi-3.1/man/Makefile.in b/libffi-3.1/man/Makefile.in
-index d92af74..47d6d8c 100644
+index d92af74fb692..47d6d8cbb8b5 100644
 --- a/libffi-3.1/man/Makefile.in
 +++ b/libffi-3.1/man/Makefile.in
 @@ -1,4 +1,4 @@
@@ -1182,9 +1182,65 @@ index d92af74..47d6d8c 100644
  # @configure_input@
  
  # Copyright (C) 1994-2013 Free Software Foundation, Inc.
+diff --git a/libffi-3.1/misc/parse_tests.py b/libffi-3.1/misc/parse_tests.py
+new file mode 100644
+index 000000000000..30e174150011
+--- /dev/null
++++ b/libffi-3.1/misc/parse_tests.py
+@@ -0,0 +1,50 @@
++#!/bin/python
++
++import sys
++
++def print_help():
++    print "Usage: python " + sys.argv[0] + " <test result file>"
++
++if len(sys.argv) != 2:
++    exit(1)
++
++summary = ""
++passed = []
++failed = []
++fname = sys.argv[1]
++f = open(fname, 'r')
++for l in f.readlines():
++    if l.startswith("PASS"):
++        z = l.split()
++        if not z[1] in passed: 
++            passed.append(z[1])
++    elif l.startswith("FAIL"):
++        z = l.split()
++        if not z[1] in failed: 
++            failed.append(z[1])
++    elif l.startswith("#"):
++        summary += l
++
++i = 0
++while i < len(passed):
++    if passed[i] in failed:
++        del passed[i]
++        continue
++    i += 1
++
++p_num = len(passed)
++f_num = len(failed)
++total = p_num + f_num
++
++print "---TEST FILES PASSED---"
++for t in passed: print t
++print
++print "---TEST FILES FAILED---"
++for t in failed: print t
++print
++print "------TEST SUMMARY------"
++print "Passed: " + str(p_num) + " (" + str(round(float(p_num)/total*100, 1)) + "%)"
++print "Failed: " + str(f_num) + " (" + str(round(float(f_num)/total*100, 1)) + "%)"
++print "Total:  " + str(total)
++print 
++print summary
 diff --git a/libffi-3.1/misc/riscv-sim.exp b/libffi-3.1/misc/riscv-sim.exp
 new file mode 100644
-index 0000000..03177d2
+index 000000000000..03177d2ca165
 --- /dev/null
 +++ b/libffi-3.1/misc/riscv-sim.exp
 @@ -0,0 +1,6 @@
@@ -1196,19 +1252,51 @@ index 0000000..03177d2
 +set_board_info is_simulator 1
 diff --git a/libffi-3.1/misc/run_test.sh b/libffi-3.1/misc/run_test.sh
 new file mode 100755
-index 0000000..dcc0191
+index 000000000000..ca538c092378
 --- /dev/null
 +++ b/libffi-3.1/misc/run_test.sh
 @@ -0,0 +1,3 @@
 +#/bin/bash
-+riscv64-unknown-elf-gcc -I../../riscv64-unknown-elf/include -I../../riscv64-unknown-elf -L../../riscv64-unknown-elf/.libs/ $1 -lffi 
++riscv64-unknown-elf-gcc -g -I../../riscv64-unknown-elf/include -I../../riscv64-unknown-elf -L../../riscv64-unknown-elf/.libs/ $1 -lffi 
 +spike pk a.out
+diff --git a/libffi-3.1/src/prep_cif.c b/libffi-3.1/src/prep_cif.c
+index 55ceed8c5e70..e43cd2e97b3e 100644
+--- a/libffi-3.1/src/prep_cif.c
++++ b/libffi-3.1/src/prep_cif.c
+@@ -139,8 +139,8 @@ ffi_status FFI_HIDDEN ffi_prep_cif_core(ffi_cif *cif, ffi_abi abi,
+   /* Perform a sanity check on the return type */
+   FFI_ASSERT_VALID_TYPE(cif->rtype);
+ 
+-  /* x86, x86-64 and s390 stack space allocation is handled in prep_machdep. */
+-#if !defined M68K && !defined X86_ANY && !defined S390 && !defined PA
++  /* x86, x86-64, s390, and riscv stack space allocation is handled in prep_machdep. */
++#if !defined M68K && !defined X86_ANY && !defined S390 && !defined PA && !defined __riscv64
+   /* Make space for the return structure pointer */
+   if (cif->rtype->type == FFI_TYPE_STRUCT
+ #ifdef SPARC
+@@ -170,7 +170,7 @@ ffi_status FFI_HIDDEN ffi_prep_cif_core(ffi_cif *cif, ffi_abi abi,
+ 	 check after the initialization.  */
+       FFI_ASSERT_VALID_TYPE(*ptr);
+ 
+-#if !defined X86_ANY && !defined S390 && !defined PA
++#if !defined X86_ANY && !defined S390 && !defined PA && !defined __riscv64
+ #ifdef SPARC
+       if (((*ptr)->type == FFI_TYPE_STRUCT
+ 	   && ((*ptr)->size > 16 || cif->abi != FFI_V9))
+@@ -197,7 +197,6 @@ ffi_status FFI_HIDDEN ffi_prep_cif_core(ffi_cif *cif, ffi_abi abi,
+ 	  if (bytes <= 6*4 && bytes + STACK_ARG_SIZE((*ptr)->size) > 6*4)
+ 	    bytes = 6*4;
+ #endif
+-
+ 	  bytes += STACK_ARG_SIZE((*ptr)->size);
+ 	}
+ #endif
 diff --git a/libffi-3.1/src/riscv/.deps/.dirstamp b/libffi-3.1/src/riscv/.deps/.dirstamp
 new file mode 100644
-index 0000000..e69de29
+index 000000000000..e69de29bb2d1
 diff --git a/libffi-3.1/src/riscv/.deps/ffi.Plo b/libffi-3.1/src/riscv/.deps/ffi.Plo
 new file mode 100644
-index 0000000..eb18c9b
+index 000000000000..eb18c9b778ff
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/.deps/ffi.Plo
 @@ -0,0 +1,61 @@
@@ -1275,7 +1363,7 @@ index 0000000..eb18c9b
 +/home/risc-v/riscv/lib64/gcc/riscv-elf/4.6.1/../../../../riscv-elf/include/machine/stdlib.h:
 diff --git a/libffi-3.1/src/riscv/.deps/ffi64.Plo b/libffi-3.1/src/riscv/.deps/ffi64.Plo
 new file mode 100644
-index 0000000..e765ffb
+index 000000000000..e765ffb1b6b7
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/.deps/ffi64.Plo
 @@ -0,0 +1,61 @@
@@ -1342,7 +1430,7 @@ index 0000000..e765ffb
 +/home/risc-v/riscv/lib64/gcc/riscv-elf/4.6.1/../../../../riscv-elf/include/machine/stdlib.h:
 diff --git a/libffi-3.1/src/riscv/.deps/rv32.Plo b/libffi-3.1/src/riscv/.deps/rv32.Plo
 new file mode 100644
-index 0000000..ffad3c5
+index 000000000000..ffad3c53ec0c
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/.deps/rv32.Plo
 @@ -0,0 +1,8 @@
@@ -1356,7 +1444,7 @@ index 0000000..ffad3c5
 +include/ffitarget.h:
 diff --git a/libffi-3.1/src/riscv/.deps/rv64.Plo b/libffi-3.1/src/riscv/.deps/rv64.Plo
 new file mode 100644
-index 0000000..439907d
+index 000000000000..439907d84917
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/.deps/rv64.Plo
 @@ -0,0 +1,8 @@
@@ -1370,10 +1458,10 @@ index 0000000..439907d
 +include/ffitarget.h:
 diff --git a/libffi-3.1/src/riscv/.dirstamp b/libffi-3.1/src/riscv/.dirstamp
 new file mode 100644
-index 0000000..e69de29
+index 000000000000..e69de29bb2d1
 diff --git a/libffi-3.1/src/riscv/asm.py b/libffi-3.1/src/riscv/asm.py
 new file mode 100644
-index 0000000..0d6ab2c
+index 000000000000..0d6ab2c8bbe8
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/asm.py
 @@ -0,0 +1,37 @@
@@ -1416,10 +1504,10 @@ index 0000000..0d6ab2c
 +print gen64_setargs_string()
 diff --git a/libffi-3.1/src/riscv/ffi.c b/libffi-3.1/src/riscv/ffi.c
 new file mode 100644
-index 0000000..b9cfc79
+index 000000000000..0ddc7ae061a7
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/ffi.c
-@@ -0,0 +1,637 @@
+@@ -0,0 +1,746 @@
 +/* -----------------------------------------------------------------------
 +   ffi.c - Copyright (c) 2015 Michael Knyszek <mknyszek@berkeley.edu>
 +                         2015 Andrew Waterman <waterman@cs.berkeley.edu>
@@ -1454,6 +1542,8 @@ index 0000000..b9cfc79
 +#include <stdlib.h>
 +#include <stdint.h>
 +
++#define STACK_ARG_SIZE(x) ALIGN(x, FFI_SIZEOF_ARG)
++
 +/* ffi_prep_args is called by the assembly routine once stack space
 +   has been allocated for the function's arguments */
 +
@@ -1461,10 +1551,11 @@ index 0000000..b9cfc79
 +{
 +    int i;
 +    void **p_argv;
-+    char *argp;
++    char *argp, *cpy_struct;
 +    ffi_type **p_arg;
 +    
 +    argp = stack;
++    cpy_struct = stack + ALIGN(bytes, 16);
 +
 +    memset(stack, 0, bytes);
 +
@@ -1473,7 +1564,7 @@ index 0000000..b9cfc79
 +        *(ffi_arg *) argp = (ffi_arg) ecif->rvalue;
 +        argp += sizeof(ffi_arg);
 +    }
-+
++    
 +    p_argv = ecif->avalue;
 +
 +    for (i = 0, p_arg = ecif->cif->arg_types; i < ecif->cif->nargs; i++, p_arg++)
@@ -1565,13 +1656,13 @@ index 0000000..b9cfc79
 +                    break;
 +            }
 +        }
-+        else
++        else if (z <= 2*sizeof(ffi_arg))
 +        {
-+            unsigned long end = (unsigned long) argp + z;
-+            unsigned long cap = (unsigned long) stack + bytes;
-+            
 +            /* Check if the data will fit within the register space.
 +               Handle it if it doesn't. */
++            
++            unsigned long end = (unsigned long) argp + z;
++            unsigned long cap = (unsigned long) stack + bytes;
 +            
 +            if (end <= cap)
 +                memcpy(argp, *p_argv, z);
@@ -1585,6 +1676,30 @@ index 0000000..b9cfc79
 +                memcpy(argp, (void*)((unsigned long)(*p_argv) + portion), z);
 +            }
 +        }
++        else if(i < 8 && z > 2*sizeof(ffi_arg))
++        {
++            /* It's too big to pass in any registers or on the stack, 
++               so we pass a pointer, and copy the struct to pass by value.
++               But, we can't _just_ copy it onto the stack! We need to actually
++               make sure it gets onto the "bottom" (really the top, high memory
++               addresses) of the stack frame... */
++            
++            /* Update pointer to where our struct location on the stack is */
++            cpy_struct -= ALIGN(z, a);
++            
++            memcpy(cpy_struct, *p_argv, z);
++            
++            /* Pass pointer in register */
++            *(ffi_arg *)argp = (ffi_arg) cpy_struct;
++            
++            z = sizeof(ffi_arg);
++        }
++        else
++        {
++            /* Just some big struct, pass it by value by copying it onto
++               the stack. */
++            memcpy(argp, *p_argv, z);
++        }
 +        
 +        p_argv++;
 +        argp += z;
@@ -1594,7 +1709,7 @@ index 0000000..b9cfc79
 +/* This code traverses structure definitions 
 +   and generates the appropriate flags. */
 +
-+static unsigned calc_riscv_struct_flags(int soft_float, ffi_type *arg, unsigned *loc, unsigned *arg_reg)
++static unsigned calc_riscv_struct_flags(int soft_float, ffi_type *arg, size_t size, unsigned *loc, unsigned *arg_reg)
 +{
 +    unsigned flags = 0;
 +    unsigned index = 0;
@@ -1602,6 +1717,13 @@ index 0000000..b9cfc79
 +    
 +    if (soft_float)
 +        return 0;
++    
++    /* The struct is too big to pass on the stack, so we pass it by reference */
++    if (size > 2 * FFI_SIZEOF_ARG)
++    {
++        (*arg_reg)++;
++        return 0;
++    }
 +    
 +    while ((e = arg->elements[index]))
 +    {
@@ -1684,9 +1806,11 @@ index 0000000..b9cfc79
 +    return flags;
 +}
 +
-+/* Perform machine dependent cif processing */
++/* Generate the flags word for processing arguments and 
++   putting them into their proper registers in the 
++   assembly routine. */
 +
-+ffi_status ffi_prep_cif_machdep(ffi_cif *cif)
++void ffi_prep_cif_machdep_flags(ffi_cif *cif, unsigned int isvariadic, unsigned int nfixedargs)
 +{
 +    int type;
 +    unsigned arg_reg = 0;
@@ -1735,7 +1859,7 @@ index 0000000..b9cfc79
 +        type = (cif->arg_types)[index]->type;
 +        
 +        /* Handle float argument types for soft float case */
-+        if (soft_float)
++        if (soft_float || (isvariadic && arg_reg >= nfixedargs))
 +        {
 +            switch (type)
 +            {
@@ -1751,14 +1875,14 @@ index 0000000..b9cfc79
 +        }
 +        switch (type)
 +        {
-+            case FFI_TYPE_FLOAT:  // = 2 = 0b10
-+            case FFI_TYPE_DOUBLE: // = 3 = 0b11
++            case FFI_TYPE_FLOAT:  /* = 2 = 0b10 */
++            case FFI_TYPE_DOUBLE: /* = 3 = 0b11 */
 +                cif->flags += ((cif->arg_types)[index]->type << (arg_reg * FFI_FLAG_BITS));
 +                arg_reg++;
 +                break;
 +            case FFI_TYPE_STRUCT:
 +                loc = arg_reg * FFI_SIZEOF_ARG;
-+                cif->flags += calc_riscv_struct_flags(soft_float, (cif->arg_types)[index], &loc, &arg_reg);
++                cif->flags += calc_riscv_struct_flags(soft_float, (cif->arg_types)[index], (cif->arg_types)[index]->size, &loc, &arg_reg);
 +                break;
 +            default:
 +                arg_reg++;
@@ -1805,18 +1929,73 @@ index 0000000..b9cfc79
 +        case FFI_TYPE_FLOAT:
 +        case FFI_TYPE_DOUBLE:
 +            cif->flags += cif->rtype->type << (FFI_FLAG_BITS * 8);
-+            break;        
-+        #ifndef __riscv64
-+        case FFI_TYPE_SINT64:
-+        case FFI_TYPE_UINT64:
-+            cif->flags += FFI_TYPE_UINT64 << (FFI_FLAG_BITS * 8);
 +            break;
-+        #endif
++        case FFI_TYPE_SINT32:
++        case FFI_TYPE_UINT32:
++            cif->flags += FFI_TYPE_SINT32 << (FFI_FLAG_BITS * 8);
++            break;
 +        default:
 +            cif->flags += FFI_TYPE_INT << (FFI_FLAG_BITS * 8);
 +            break;
 +    }
++}
 +
++/* Count how big our argspace is in bytes. Here, we always
++   allocate at least 8 pointer words and handle big structs
++   being passed in registers. */
++
++void ffi_prep_cif_machdep_bytes(ffi_cif *cif)
++{
++    int i;
++    ffi_type **ptr;
++    unsigned bytes = 0, extra_bytes = 0;
++    
++    if (cif->rtype->type == FFI_TYPE_STRUCT)
++        bytes = STACK_ARG_SIZE(sizeof(void*));
++    
++    for (ptr = cif->arg_types, i = cif->nargs; i > 0; i--, ptr++)
++    {
++        /* Add any padding if necessary */
++        if (((*ptr)->alignment - 1) & bytes)
++            bytes = (unsigned)ALIGN(bytes, (*ptr)->alignment);
++
++        /* When we pass big structs in registers, we copy it onto the stack and assign a pointer to it */
++        if ((*ptr)->size > 2 * FFI_SIZEOF_ARG && bytes < 8 * FFI_SIZEOF_ARG)
++        {
++            bytes += sizeof(void*);
++            extra_bytes += STACK_ARG_SIZE((*ptr)->size);
++        }
++        else
++        {
++            bytes += STACK_ARG_SIZE((*ptr)->size);
++        }
++    }
++
++    if (bytes < 8 * FFI_SIZEOF_ARG)
++        bytes = 8 * FFI_SIZEOF_ARG;
++    
++    bytes += extra_bytes;
++    
++    cif->bytes = bytes;
++}
++
++/* Perform machine dependent cif processing */
++
++ffi_status ffi_prep_cif_machdep(ffi_cif *cif)
++{
++    ffi_prep_cif_machdep_bytes(cif);
++    ffi_prep_cif_machdep_flags(cif, 0, 0);
++    cif->isvariadic = 0;
++    return FFI_OK;
++}
++
++/* Perform machine dependent cif processing when we have a variadic function */
++
++ffi_status ffi_prep_cif_machdep_var(ffi_cif *cif, unsigned int nfixedargs, unsigned int ntotalargs)
++{
++    ffi_prep_cif_machdep_bytes(cif);
++    ffi_prep_cif_machdep_flags(cif, 1, nfixedargs);
++    cif->isvariadic = 1;
 +    return FFI_OK;
 +}
 +
@@ -1953,6 +2132,7 @@ index 0000000..b9cfc79
 +    int i, avn, argn;
 +    int soft_float;
 +    ffi_arg *argp;
++    size_t z;
 +    
 +    cif = closure->cif;
 +    soft_float = cif->abi == FFI_RV64_SOFT_FLOAT || cif->abi == FFI_RV32_SOFT_FLOAT;
@@ -1972,12 +2152,13 @@ index 0000000..b9cfc79
 +    
 +    while (i < avn)
 +    {
++        z = arg_types[i]->size;
 +        if (arg_types[i]->type == FFI_TYPE_FLOAT || arg_types[i]->type == FFI_TYPE_DOUBLE || arg_types[i]->type == FFI_TYPE_LONGDOUBLE)
 +        {
-+            argp = (argn >= 8 || soft_float) ? ar + argn : fpr + argn;
++            argp = (argn >= 8 || cif->isvariadic || soft_float) ? ar + argn : fpr + argn;
 +            if ((arg_types[i]->type == FFI_TYPE_LONGDOUBLE) && ((uintptr_t)argp & (arg_types[i]->alignment-1)))
 +            {
-+                argp=(ffi_arg*)ALIGN(argp,arg_types[i]->alignment);
++                argp = (ffi_arg*)ALIGN(argp, arg_types[i]->alignment);
 +                argn++;
 +            }
 +            avaluep[i] = (char *) argp;
@@ -2029,14 +2210,31 @@ index 0000000..b9cfc79
 +                    *(UINT32 *) &avalue[i] = (UINT32) *argp;
 +                    break;
 +                    
++                case FFI_TYPE_SINT64:
++                    avaluep[i] = &avalue[i];
++                    *(SINT64 *) &avalue[i] = (SINT64) *argp;
++                    break;
++                    
++                case FFI_TYPE_UINT64:
++                    avaluep[i] = &avalue[i];
++                    *(UINT64 *) &avalue[i] = (UINT64) *argp;
++                    break;
++                    
 +                case FFI_TYPE_STRUCT:
-+                    if (argn < 8)
++                    if (argn < 8 && arg_types[i]->size <= 2*sizeof(ffi_arg))
 +                    {
-+                        /* Allocate space for the struct as at least part of
-+                        it was passed in registers. */
++                        /* Allocate space to copy structs that were passed in registers */
 +                        avaluep[i] = alloca(arg_types[i]->size);
-+                        copy_struct(avaluep[i], 0, cif->abi, arg_types[i],
-+                        argn, 0, ar, fpr, soft_float);
++                        copy_struct(avaluep[i], 0, cif->abi, arg_types[i], argn, 0, ar, fpr, soft_float);
++                        break;
++                    }
++                    else
++                    {
++                        /* The struct was too big to be passed in registers, so it was passed on the stack 
++                           with pointers in the registers. We need to properly pass the pointer AND set
++                           the correct size to increment by! */
++                        avaluep[i] = (void *) *argp;
++                        z = 1;
 +                        break;
 +                    }
 +                    
@@ -2046,8 +2244,7 @@ index 0000000..b9cfc79
 +                    break;
 +            }
 +        }
-+        
-+        argn += ALIGN(arg_types[i]->size, sizeof(ffi_arg)) / sizeof(ffi_arg);
++        argn += ALIGN(z, sizeof(ffi_arg)) / sizeof(ffi_arg);
 +        i++;
 +    }
 +    
@@ -2059,10 +2256,10 @@ index 0000000..b9cfc79
 +#endif /* FFI_CLOSURES */
 diff --git a/libffi-3.1/src/riscv/ffitarget.h b/libffi-3.1/src/riscv/ffitarget.h
 new file mode 100644
-index 0000000..b2b773b
+index 000000000000..986ce72285a7
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/ffitarget.h
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,120 @@
 +/* -----------------------------------------------------------------*-C-*-
 +   ffitarget.h - 2014 Michael Knyszek
 +   
@@ -2178,16 +2375,17 @@ index 0000000..b2b773b
 +#define FFI_CLOSURES 1
 +#define FFI_TRAMPOLINE_SIZE 24
 +#define FFI_NATIVE_RAW_API 0
-+#define FFI_EXTRA_CIF_FIELDS unsigned rstruct_flag
++#define FFI_EXTRA_CIF_FIELDS unsigned rstruct_flag; char isvariadic
++#define FFI_TARGET_SPECIFIC_VARIADIC 1
 +
 +#endif
 +
 diff --git a/libffi-3.1/src/riscv/sysv.S b/libffi-3.1/src/riscv/sysv.S
 new file mode 100644
-index 0000000..53dcebd
+index 000000000000..5aa6338f5913
 --- /dev/null
 +++ b/libffi-3.1/src/riscv/sysv.S
-@@ -0,0 +1,770 @@
+@@ -0,0 +1,782 @@
 +/* -----------------------------------------------------------------------
 +   ffi.c - Copyright (c) 2015 Michael Knyszek <mknyszek@berkeley.edu>
 +                         2015 Andrew Waterman <waterman@cs.berkeley.edu>
@@ -2250,17 +2448,15 @@ index 0000000..53dcebd
 +#define FFI_FLAG_BITS_X7 (7 * FFI_FLAG_BITS)
 +
 +# Stack pointer needs to be 16-byte aligned, so frame size is rounded up
-+#ifdef __riscv64
-+#  define SIZEOF_FRAME (6 * FFI_SIZEOF_ARG)
-+#else
-+#  define SIZEOF_FRAME (8 * FFI_SIZEOF_ARG)
-+#endif
++#define SIZEOF_FRAME (6 * FFI_SIZEOF_ARG)
 +
 +    .text
 +    .align  2
 +    .globl  ffi_call_asm
 +    .type   ffi_call_asm, @function
-+ffi_call_asm:   
++ffi_call_asm:
++    .cfi_startproc
++    
 +    ### Prologue
 +    
 +    # a0 - ffi_prep_args pointer
@@ -2276,23 +2472,24 @@ index 0000000..53dcebd
 +    # stack ptr points to first argument on stack,
 +    # but there should be no arguments on the stack
 +    
-+    REG_S   flags,   FFI_SIZEOF_ARG_X0(sp)   # save flags
-+    REG_S   rvalue,  FFI_SIZEOF_ARG_X1(sp)   # save return value pointer
-+    REG_S   fn,      FFI_SIZEOF_ARG_X2(sp)   # save function pointer
-+    REG_S   fp,      FFI_SIZEOF_ARG_X3(sp)   # save frame pointer
-+    REG_S   ra,      FFI_SIZEOF_ARG_X4(sp)   # save return address
-+    REG_S   bytes,   FFI_SIZEOF_ARG_X5(sp)   # save number of bytes
++    .cfi_def_cfa_offset SIZEOF_FRAME
 +    
-+    add     fp, sp, zero             # new frame pointer is updated stack pointer
++    REG_S   ra,      FFI_SIZEOF_ARG_X5(sp)   # save return address
++    REG_S   fp,      FFI_SIZEOF_ARG_X4(sp)   # save frame pointer
++    REG_S   flags,   FFI_SIZEOF_ARG_X3(sp)   # save flags
++    REG_S   fn,      FFI_SIZEOF_ARG_X2(sp)   # save function pointer
++    REG_S   rvalue,  FFI_SIZEOF_ARG_X1(sp)   # save return value pointer
++    
++    .cfi_offset 1, -8
++    .cfi_offset 8, -16
++    
++    add     fp, sp, SIZEOF_FRAME     # new frame pointer is old stack pointer
++    
++    .cfi_def_cfa 8, 0
++    
 +    add     t4, callback, zero       # function ptr to prep_args
-+
-+    # Allocate at least 8 words on the argstack
-+    ori     t0, zero, FFI_SIZEOF_ARG_X8
-+    bltu    bytes, t0, thirtytwo
-+
-+    # Here it turns out that our total arg space is bigger than our
-+    # argument register space, so we set it according to bytes
-+    # and makes sure its aligned to 16 bytes
++    
++    # Here we're setting up our argspace and its size
 +    
 +    add     t0, bytes, 15      # make sure it is aligned 
 +    andi    t0, t0,   -16      # to a 16 byte boundry
@@ -2309,7 +2506,7 @@ index 0000000..53dcebd
 +
 +    jalr    t4  # call ffi_prep_args
 +    
-+    REG_L   t0, FFI_SIZEOF_ARG_X0(fp)  # load the flags word
++    REG_L   t0, -FFI_SIZEOF_ARG_X3(fp)  # load the flags word
 +    srli    t2, t0, 16                 # shift our return type into t2
 +    
 +    li      t1, ARG_MASK
@@ -2505,7 +2702,7 @@ index 0000000..53dcebd
 +    # when its zero, it means its just a word-sized int/ptr
 +    bne     t1, zero, set_arg7_float 
 +    REG_L   a7, FFI_SIZEOF_ARG_X7(sp) # load argument
-+    j       fix_sp
++    j       call_it
 +    
 +set_arg7_float:
 +    addi    t1, t1, -2
@@ -2513,7 +2710,7 @@ index 0000000..53dcebd
 +    # when its zero, it means its just a word-sized float
 +    bne     t1, zero, set_arg7_double
 +    flw     fa7, FFI_SIZEOF_ARG_X7(sp) # load argument
-+    j       fix_sp
++    j       call_it
 +    
 +set_arg7_double:
 +    # otherwise it must be a double we're dealing with
@@ -2536,42 +2733,47 @@ index 0000000..53dcebd
 +    REG_L   a6, FFI_SIZEOF_ARG_X6(sp) # load argument
 +    REG_L   a7, FFI_SIZEOF_ARG_X7(sp) # load argument
 +
-+#endif
-+
-+fix_sp:
-+    # fix the stack pointer to point to the first argument 
-+    # not passed in a register
-+    REG_L   t1, FFI_SIZEOF_ARG_X5(fp) # load bytes word
-+    li      t0, FFI_SIZEOF_ARG_X8
-+    
-+    blt     t1, t0, call_it
-+    add     sp, sp, FFI_SIZEOF_ARG_X8
++#endif  
 +
 +call_it:
++    # First, we fix the stack pointer to point to the first argument
++    # passed on the stack.
++    add     sp, sp, FFI_SIZEOF_ARG_X8
++
 +    # Load the function pointer
-+    REG_L   t4, FFI_SIZEOF_ARG_X2(fp)
++    REG_L   t4, -FFI_SIZEOF_ARG_X4(fp)
 +
 +    # When the return value pointer is NULL, assume no return value.
-+    REG_L   t1, FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t1, -FFI_SIZEOF_ARG_X5(fp)
 +    beq     t1, zero, return_void
-+
-+    # is the return type an int? if not, and if we have an FPU,
-+    # jump ahead
-+#ifndef __riscv_soft_float
++    
++    # is the return type an int? if not, jump ahead
 +    ori     t3, zero, FFI_TYPE_INT
++    bne     t2, t3,   return_int32
++    
++    jalr    t4 # call the function
++    
++    # We reload the return pointer because it was in a temp reg and
++    # there was just a function call.
++    REG_L   t0, -FFI_SIZEOF_ARG_X5(fp)
++    REG_S   a0, 0(t0)
++    j       epilogue
++
++return_int32:
++    ori     t3, zero, FFI_TYPE_SINT32
++#ifndef __riscv_soft_float
 +    bne     t2, t3, return_float
++#else
++    bne     t2, t3, return_struct_d_soft
 +#endif
 +    
 +    jalr    t4 # call the function
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0, FFI_SIZEOF_ARG_X1(fp)
-+    REG_S   a0, 0(t0)
++    REG_L   t0, -FFI_SIZEOF_ARG_X5(fp)
++    sw      a0, 0(t0)
 +    j       epilogue
-+
-+    # when we're in the soft float case, we'll just fall through here to the
-+    # soft float struct special cases
 +    
 +#ifndef __riscv_soft_float
 +return_float:
@@ -2583,7 +2785,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsw     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +
@@ -2596,7 +2798,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsd     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +
@@ -2615,7 +2817,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsd     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +    
@@ -2628,7 +2830,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsw     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +    
@@ -2641,7 +2843,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsd     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    fsd     fa1, FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2655,7 +2857,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsw     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    fsw     fa1, FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2669,7 +2871,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsd     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    fsw     fa1, FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2683,7 +2885,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    fsw     fa0, FFI_SIZEOF_ARG_X0(t0)
 +    fsd     fa1, FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2705,7 +2907,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sd      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +    
@@ -2718,7 +2920,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sw      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +    
@@ -2731,7 +2933,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sd      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    sd      a1,  FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2745,7 +2947,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sw      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    sw      a1,  FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2759,7 +2961,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sd      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    sw      a1,  FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2773,7 +2975,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    sw      a0,  FFI_SIZEOF_ARG_X0(t0)
 +    sd      a1,  FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2791,7 +2993,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    REG_S   a0,  FFI_SIZEOF_ARG_X0(t0)
 +    j       epilogue
 +    
@@ -2804,7 +3006,7 @@ index 0000000..53dcebd
 +    
 +    # We reload the return pointer because it was in a temp reg and
 +    # there was just a function call.
-+    REG_L   t0,  FFI_SIZEOF_ARG_X1(fp)
++    REG_L   t0,  -FFI_SIZEOF_ARG_X5(fp)
 +    REG_S   a0,  FFI_SIZEOF_ARG_X0(t0)
 +    REG_S   a1,  FFI_SIZEOF_ARG_X1(t0)
 +    j       epilogue
@@ -2815,151 +3017,159 @@ index 0000000..53dcebd
 +    jalr    t4 # call the function
 +   
 +epilogue:   
-+    add     sp, fp, zero    
-+    REG_L   fp, FFI_SIZEOF_ARG_X3(sp)  # Restore frame pointer
-+    REG_L   ra, FFI_SIZEOF_ARG_X4(sp)  # Restore return address
-+    add     sp, sp, SIZEOF_FRAME       # Fix stack pointer
++    add     sp, fp, zero               # Fix stack pointer
++    REG_L   fp, -FFI_SIZEOF_ARG_X2(sp)  # Restore frame pointer
++    REG_L   ra, -FFI_SIZEOF_ARG_X1(sp)  # Restore return address      
 +    jr      ra
 +    
++    .cfi_endproc
 +    .size   ffi_call_asm, .-ffi_call_asm
 +
 +    
 +/* ffi_closure_asm. Expects address of the passed-in ffi_closure in t0. */
 +
 +#define SIZEOF_FRAME2 (20 * FFI_SIZEOF_ARG)
-+#define A7_OFF2 (19 * FFI_SIZEOF_ARG)
-+#define A6_OFF2 (18 * FFI_SIZEOF_ARG)
-+#define A5_OFF2 (17 * FFI_SIZEOF_ARG)
-+#define A4_OFF2 (16 * FFI_SIZEOF_ARG)
-+#define A3_OFF2 (15 * FFI_SIZEOF_ARG)
-+#define A2_OFF2 (14 * FFI_SIZEOF_ARG)
-+#define A1_OFF2 (13 * FFI_SIZEOF_ARG)
-+#define A0_OFF2 (12 * FFI_SIZEOF_ARG)
-+#define FA7_OFF2 (11 * FFI_SIZEOF_ARG)
-+#define FA6_OFF2 (10 * FFI_SIZEOF_ARG)
-+#define FA5_OFF2 (9 * FFI_SIZEOF_ARG)
-+#define FA4_OFF2 (8 * FFI_SIZEOF_ARG)
-+#define FA3_OFF2 (7 * FFI_SIZEOF_ARG)
-+#define FA2_OFF2 (6 * FFI_SIZEOF_ARG)
-+#define FA1_OFF2 (5 * FFI_SIZEOF_ARG)
-+#define FA0_OFF2 (4 * FFI_SIZEOF_ARG)
-+#define V1_OFF2 (3 * FFI_SIZEOF_ARG)
-+#define V0_OFF2 (2 * FFI_SIZEOF_ARG)
-+#define RA_OFF2 (1 * FFI_SIZEOF_ARG)
++#define A7_OFF2       (19 * FFI_SIZEOF_ARG)
++#define A6_OFF2       (18 * FFI_SIZEOF_ARG)
++#define A5_OFF2       (17 * FFI_SIZEOF_ARG)
++#define A4_OFF2       (16 * FFI_SIZEOF_ARG)
++#define A3_OFF2       (15 * FFI_SIZEOF_ARG)
++#define A2_OFF2       (14 * FFI_SIZEOF_ARG)
++#define A1_OFF2       (13 * FFI_SIZEOF_ARG)
++#define A0_OFF2       (12 * FFI_SIZEOF_ARG)
++#define FA7_OFF2      (11 * FFI_SIZEOF_ARG)
++#define FA6_OFF2      (10 * FFI_SIZEOF_ARG)
++#define FA5_OFF2      ( 9 * FFI_SIZEOF_ARG)
++#define FA4_OFF2      ( 8 * FFI_SIZEOF_ARG)
++#define FA3_OFF2      ( 7 * FFI_SIZEOF_ARG)
++#define FA2_OFF2      ( 6 * FFI_SIZEOF_ARG)
++#define FA1_OFF2      ( 5 * FFI_SIZEOF_ARG)
++#define FA0_OFF2      ( 4 * FFI_SIZEOF_ARG)
++#define V1_OFF2       ( 3 * FFI_SIZEOF_ARG)
++#define V0_OFF2       ( 2 * FFI_SIZEOF_ARG)
++#define RA_OFF2       ( 1 * FFI_SIZEOF_ARG)
 +
 +    .align 2
 +    .globl ffi_closure_asm
 +    .type ffi_closure_asm, @function
 +ffi_closure_asm:
++    .cfi_startproc
 +
-+    addi sp, sp, -SIZEOF_FRAME2
-+    REG_S ra, RA_OFF2(sp) # Save return address
++    addi    sp,  sp, -SIZEOF_FRAME2
++    
++    .cfi_def_cfa_offset SIZEOF_FRAME2
++    
++    REG_S   ra,  RA_OFF2(sp) # Save return address
++    
++    .cfi_offset  1, -19*FFI_SIZEOF_ARG
++    .cfi_def_cfa 2, SIZEOF_FRAME2
 +    
 +    # Store all possible argument registers. If there are more than
 +    # fit in registers, then they were stored on the stack.
-+    REG_S a0, A0_OFF2(sp)
-+    REG_S a1, A1_OFF2(sp)
-+    REG_S a2, A2_OFF2(sp)
-+    REG_S a3, A3_OFF2(sp)
-+    REG_S a4, A4_OFF2(sp)
-+    REG_S a5, A5_OFF2(sp)
-+    REG_S a6, A6_OFF2(sp)
-+    REG_S a7, A7_OFF2(sp)
++    REG_S   a0,  A0_OFF2(sp)
++    REG_S   a1,  A1_OFF2(sp)
++    REG_S   a2,  A2_OFF2(sp)
++    REG_S   a3,  A3_OFF2(sp)
++    REG_S   a4,  A4_OFF2(sp)
++    REG_S   a5,  A5_OFF2(sp)
++    REG_S   a6,  A6_OFF2(sp)
++    REG_S   a7,  A7_OFF2(sp)
 +    
 +    # Store all possible float/double registers.
-+    fsd fa0, FA0_OFF2(sp)
-+    fsd fa1, FA1_OFF2(sp)
-+    fsd fa2, FA2_OFF2(sp)
-+    fsd fa3, FA3_OFF2(sp)
-+    fsd fa4, FA4_OFF2(sp)
-+    fsd fa5, FA5_OFF2(sp)
-+    fsd fa6, FA6_OFF2(sp)
-+    fsd fa7, FA7_OFF2(sp)
++    fsd     fa0, FA0_OFF2(sp)
++    fsd     fa1, FA1_OFF2(sp)
++    fsd     fa2, FA2_OFF2(sp)
++    fsd     fa3, FA3_OFF2(sp)
++    fsd     fa4, FA4_OFF2(sp)
++    fsd     fa5, FA5_OFF2(sp)
++    fsd     fa6, FA6_OFF2(sp)
++    fsd     fa7, FA7_OFF2(sp)
 +    
 +    # Call ffi_closure_riscv_inner to do the real work.
-+    move a0, t0 # Pointer to the ffi_closure
-+    addi a1, sp, V0_OFF2
-+    addi a2, sp, A0_OFF2
-+    addi a3, sp, FA0_OFF2
-+    call ffi_closure_riscv_inner
++    move    a0, t0 # Pointer to the ffi_closure
++    addi    a1, sp, V0_OFF2
++    addi    a2, sp, A0_OFF2
++    addi    a3, sp, FA0_OFF2
++    call    ffi_closure_riscv_inner
 +    
 +    # Return flags are in a0
-+    li t0, FFI_TYPE_SINT32
-+    bne a0, t0, cls_retint
-+    lw a0, V0_OFF2(sp)
-+    j cls_epilogue
++    li      t0, FFI_TYPE_INT
++    bne     a0, t0, cls_retint32
++    REG_L   a0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
-+cls_retint:
-+    li t0, FFI_TYPE_INT
-+    bne a0, t0, cls_retfloat
-+    REG_L a0, V0_OFF2(sp)
-+    j cls_epilogue
++cls_retint32:
++    li      t0, FFI_TYPE_SINT32
++    bne     a0, t0, cls_retfloat
++    lw      a0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retfloat:
-+    li t0, FFI_TYPE_FLOAT
-+    bne a0, t0, cls_retdouble
-+    flw fa0, V0_OFF2(sp)
-+    j cls_epilogue
++    li      t0, FFI_TYPE_FLOAT
++    bne     a0, t0, cls_retdouble
++    flw     fa0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retdouble:
-+    li t0, FFI_TYPE_DOUBLE
-+    bne a0, t0, cls_retstruct_d
-+    fld fa0, V0_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_DOUBLE
++    bne     a0,  t0, cls_retstruct_d
++    fld     fa0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_d:
-+    li t0, FFI_TYPE_STRUCT_D
-+    bne a0, t0, cls_retstruct_f
-+    fld fa0, V0_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_D
++    bne     a0,  t0, cls_retstruct_f
++    fld     fa0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_f:
-+    li t0, FFI_TYPE_STRUCT_F
-+    bne a0, t0, cls_retstruct_d_d
-+    flw fa0, V0_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_F
++    bne     a0,  t0, cls_retstruct_d_d
++    flw     fa0, V0_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_d_d:
-+    li t0, FFI_TYPE_STRUCT_DD
-+    bne a0, t0, cls_retstruct_f_f
-+    fld fa0, V0_OFF2(sp)
-+    fld fa1, V1_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_DD
++    bne     a0,  t0, cls_retstruct_f_f
++    fld     fa0, V0_OFF2(sp)
++    fld     fa1, V1_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_f_f:
-+    li t0, FFI_TYPE_STRUCT_FF
-+    bne a0, t0, cls_retstruct_d_f
-+    flw fa0, V0_OFF2(sp)
-+    flw fa1, V1_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_FF
++    bne     a0,  t0, cls_retstruct_d_f
++    flw     fa0, V0_OFF2(sp)
++    flw     fa1, V1_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_d_f:
-+    li t0, FFI_TYPE_STRUCT_DF
-+    bne a0, t0, cls_retstruct_f_d
-+    fld fa0, V0_OFF2(sp)
-+    flw fa1, V1_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_DF
++    bne     a0,  t0, cls_retstruct_f_d
++    fld     fa0, V0_OFF2(sp)
++    flw     fa1, V1_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_f_d:
-+    li t0, FFI_TYPE_STRUCT_FD
-+    bne a0, t0, cls_retstruct_small2
-+    flw fa0, V0_OFF2(sp)
-+    fld fa1, V1_OFF2(sp)
-+    j cls_epilogue
++    li      t0,  FFI_TYPE_STRUCT_FD
++    bne     a0,  t0, cls_retstruct_small2
++    flw     fa0, V0_OFF2(sp)
++    fld     fa1, V1_OFF2(sp)
++    j       cls_epilogue
 +    
 +cls_retstruct_small2:
-+    REG_L a0, V0_OFF2(sp)
-+    REG_L a1, V1_OFF2(sp)
++    REG_L   a0, V0_OFF2(sp)
++    REG_L   a1, V1_OFF2(sp)
 +    
 +# Epilogue
 +cls_epilogue:
-+    REG_L ra, RA_OFF2(sp) # Restore return address
-+    addi sp, sp, SIZEOF_FRAME2
++    REG_L   ra, RA_OFF2(sp) # Restore return address
++    addi    sp, sp, SIZEOF_FRAME2
 +    ret
 +    
++    .cfi_endproc
 +    .size ffi_closure_asm, .-ffi_closure_asm
 diff --git a/libffi-3.1/testsuite/Makefile.am b/libffi-3.1/testsuite/Makefile.am
-index da10465..d72f122 100644
+index da10465d283c..d72f12264995 100644
 --- a/libffi-3.1/testsuite/Makefile.am
 +++ b/libffi-3.1/testsuite/Makefile.am
 @@ -34,7 +34,7 @@ libffi.call/cls_12byte.c libffi.call/cls_multi_sshortchar.c		\
@@ -2972,7 +3182,7 @@ index da10465..d72f122 100644
  libffi.call/cls_9byte1.c libffi.call/closure_fn6.c			\
  libffi.call/cls_double_va.c libffi.call/cls_align_pointer.c		\
 diff --git a/libffi-3.1/testsuite/Makefile.in b/libffi-3.1/testsuite/Makefile.in
-index 99e226c..5bbedb9 100644
+index 99e226c409ad..5bbedb962552 100644
 --- a/libffi-3.1/testsuite/Makefile.in
 +++ b/libffi-3.1/testsuite/Makefile.in
 @@ -1,4 +1,4 @@
@@ -2992,7 +3202,7 @@ index 99e226c..5bbedb9 100644
  libffi.call/cls_double_va.c libffi.call/cls_align_pointer.c		\
 diff --git a/libffi-3.1/testsuite/libffi.call/many3.c b/libffi-3.1/testsuite/libffi.call/many3.c
 new file mode 100644
-index 0000000..d7396da
+index 000000000000..d7396da3af06
 --- /dev/null
 +++ b/libffi-3.1/testsuite/libffi.call/many3.c
 @@ -0,0 +1,59 @@
