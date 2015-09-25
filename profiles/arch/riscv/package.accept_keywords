@@ -72,7 +72,6 @@ sys-apps/sysvinit amd64
 sys-apps/texinfo amd64
 sys-apps/util-linux amd64
 sys-apps/which amd64
-sys-devel/binutils amd64
 sys-devel/binutils-config amd64
 sys-devel/gcc-config amd64
 sys-devel/gnuconfig amd64
