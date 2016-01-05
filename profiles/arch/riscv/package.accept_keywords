@@ -106,6 +106,13 @@ virtual/service-manager amd64
 virtual/shadow amd64
 virtual/ssh amd64
 
+# A GCC configure bug requires these to be built on RISC-V when
+# cross-compiling, and they seem to work OK.
+dev-libs/elfutils amd64
+dev-util/systemtap amd64
+sys-libs/libcap amd64
+sys-apps/attr amd64
+
 # @system packages that won't build with RISC-V tools because they're
 # newer than Gentoo's tools.
 =sys-libs/ncurses-5.9-r4 **
