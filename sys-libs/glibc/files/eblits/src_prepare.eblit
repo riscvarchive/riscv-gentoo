@@ -38,6 +38,7 @@ eblit-glibc-src_prepare() {
 	fi
 
         epatch "${FILESDIR}/${P}-riscv-${PR}.patch"
+        epatch "${FILESDIR}/${P}-riscv-${PR}-fnctl_lock.patch"
 
 	epatch_user
 
