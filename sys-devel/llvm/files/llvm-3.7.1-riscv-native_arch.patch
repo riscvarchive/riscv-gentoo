@@ -1,0 +1,12 @@
+diff -Nur llvm-3.7.1.orig/cmake/config-ix.cmake llvm-3.7.1.src/cmake/config-ix.cmake
+--- llvm-3.7.1.orig/cmake/config-ix.cmake	2016-01-22 13:23:40.264997359 -0800
++++ llvm-3.7.1.src/cmake/config-ix.cmake	2016-01-22 13:24:41.496478377 -0800
+@@ -362,6 +362,8 @@
+   set(LLVM_NATIVE_ARCH WebAssembly)
+ elseif (LLVM_NATIVE_ARCH MATCHES "wasm64")
+   set(LLVM_NATIVE_ARCH WebAssembly)
++elseif (LLVM_NATIVE_ARCH MATCHES "riscv64")
++  set(LLVM_NATIVE_ARCH RISCV)
+ else ()
+   message(FATAL_ERROR "Unknown architecture ${LLVM_NATIVE_ARCH}")
+ endif ()

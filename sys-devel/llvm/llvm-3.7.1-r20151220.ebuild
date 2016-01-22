@@ -149,6 +149,7 @@ src_unpack() {
 
 src_prepare() {
 	epatch "${FILESDIR}"/${P}-riscv-${PR}.patch
+	epatch "${FILESDIR}"/${P}-riscv-native_arch.patch
 
     # Make ocaml warnings non-fatal, bug #537308
 	sed -e "/RUN/s/-warn-error A//" -i test/Bindings/OCaml/*ml  || die
