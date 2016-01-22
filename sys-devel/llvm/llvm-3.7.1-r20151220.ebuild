@@ -374,6 +374,10 @@ multilib_src_configure() {
 		#filter-flags -msahf -frecord-gcc-switches
 	fi
 
+	mycmakeargs+=(
+	    -DCMAKE_CROSSCOMPILING=True
+    )
+
 	cmake-utils_src_configure
 }
 
