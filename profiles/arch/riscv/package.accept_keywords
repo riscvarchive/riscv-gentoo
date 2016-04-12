@@ -15,6 +15,7 @@ app-arch/tar amd64
 app-arch/xz-utils amd64
 app-editors/nano amd64
 app-eselect/eselect-python amd64
+app-misc/c_rehash amd64
 app-misc/ca-certificates amd64
 app-misc/editor-wrapper amd64
 app-misc/mime-types amd64
@@ -42,6 +43,7 @@ net-misc/netifrc amd64
 net-misc/openssh amd64
 net-misc/rsync amd64
 net-misc/wget amd64
+net-libs/libmnl amd64
 perl-core/Data-Dumper amd64
 perl-core/File-Temp amd64
 sys-apps/baselayout amd64
