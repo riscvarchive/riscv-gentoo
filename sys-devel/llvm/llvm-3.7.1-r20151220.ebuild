@@ -376,6 +376,7 @@ multilib_src_configure() {
 
 	mycmakeargs+=(
 	    -DCMAKE_CROSSCOMPILING=True
+		-DLLVM_TABLEGEN=$(which llvm-tblgen)
     )
 
 	cmake-utils_src_configure
