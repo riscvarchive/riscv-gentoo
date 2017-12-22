@@ -55,3 +55,33 @@ index e118a5ed28f6..cfe69ca187da 100644
      
      base_machine=riscv
      machine=riscv/rv$xlen/$float_machine
+diff --git a/sysdeps/unix/sysv/linux/riscv/configure b/sysdeps/unix/sysv/linux/riscv/configure
+index 4dd085a7b0b6..98f139999961 100755
+--- a/sysdeps/unix/sysv/linux/riscv/configure
++++ b/sysdeps/unix/sysv/linux/riscv/configure
+@@ -158,9 +158,9 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
+ fi
+ rm -f conftest*
+ 
+-if test $libc_cv_riscv_int_abi = no; then
+-  as_fn_error $? "Unable to determine integer ABI" "$LINENO" 5
+-fi
++#if test $libc_cv_riscv_int_abi = no; then
++#  as_fn_error $? "Unable to determine integer ABI" "$LINENO" 5
++#fi
+ 
+ libc_cv_riscv_float_abi=no
+ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+@@ -202,9 +202,9 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
+ fi
+ rm -f conftest*
+ 
+-if test $libc_cv_riscv_float_abi = no; then
+-  as_fn_error $? "Unable to determine floating-point ABI" "$LINENO" 5
+-fi
++#if test $libc_cv_riscv_float_abi = no; then
++#  as_fn_error $? "Unable to determine floating-point ABI" "$LINENO" 5
++#fi
+ 
+ config_vars="$config_vars
+ default-abi = $libc_cv_riscv_int_abi$libc_cv_riscv_float_abi"
