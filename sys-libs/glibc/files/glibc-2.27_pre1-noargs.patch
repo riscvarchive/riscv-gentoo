@@ -83,13 +83,24 @@ index 4dd085a7b0b6..951e770ac623 100755
  
  config_vars="$config_vars
 diff --git a/sysdeps/unix/sysv/linux/riscv/shlib-versions b/sysdeps/unix/sysv/linux/riscv/shlib-versions
-index fe7322d23a94..d8b968209933 100644
+index fe7322d23a94..ca5e7b491f7d 100644
 --- a/sysdeps/unix/sysv/linux/riscv/shlib-versions
 +++ b/sysdeps/unix/sysv/linux/riscv/shlib-versions
-@@ -13,5 +13,5 @@ ld=ld-linux-riscv32-ilp32f.so.1
- %elif RISCV_ABI_XLEN == 32 && RISCV_ABI_FLEN == 0
- ld=ld-linux-riscv32-ilp32.so.1
- %else
+@@ -1,17 +1,3 @@
+ DEFAULT		GLIBC_2.27
+ 
+-%if RISCV_ABI_XLEN == 64 && RISCV_ABI_FLEN == 64
+ ld=ld-linux-riscv64-lp64d.so.1
+-%elif RISCV_ABI_XLEN == 64 && RISCV_ABI_FLEN == 32
+-ld=ld-linux-riscv64-lp64f.so.1
+-%elif RISCV_ABI_XLEN == 64 && RISCV_ABI_FLEN == 0
+-ld=ld-linux-riscv64-lp64.so.1
+-%elif RISCV_ABI_XLEN == 32 && RISCV_ABI_FLEN == 64
+-ld=ld-linux-riscv32-ilp32d.so.1
+-%elif RISCV_ABI_XLEN == 32 && RISCV_ABI_FLEN == 32
+-ld=ld-linux-riscv32-ilp32f.so.1
+-%elif RISCV_ABI_XLEN == 32 && RISCV_ABI_FLEN == 0
+-ld=ld-linux-riscv32-ilp32.so.1
+-%else
 -%error cannot determine ABI
-+ld=ld-linux-riscv64-lp64d.so.1
- %endif
+-%endif
