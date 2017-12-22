@@ -1,18 +1,14 @@
-# Copyright 1999-2015 Gentoo Foundation
+# Copyright 1999-2017 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Id$
-# gentoo-x86: sys-kernel/linux-headers-4.1.15
-# riscv-linux: 
 
-EAPI="4"
-H_SUPPORTEDARCH="alpha amd64 arc arm arm64 avr32 bfin cris frv hexagon hppa ia64 m32r m68k metag microblaze mips mn10300 openrisc ppc ppc64 riscv s390 score sh sparc tile x86 xtensa"
+EAPI="5"
+
 ETYPE="headers"
+H_SUPPORTEDARCH="amd64 riscv"
 inherit kernel-2
 detect_version
 
-PATCH_VER="1"
-SRC_URI="mirror://gentoo/gentoo-headers-base-${PV}.tar.xz
-	${PATCH_VER:+mirror://gentoo/gentoo-headers-${PV}-${PATCH_VER}.tar.xz}"
+SRC_URI="https://git.kernel.org/torvalds/t/linux-4.15-rc4.tar.gz"
 
 KEYWORDS="riscv"
 
@@ -20,15 +16,10 @@ DEPEND="app-arch/xz-utils
 	dev-lang/perl"
 RDEPEND="!!media-sound/alsa-headers"
 
-S=${WORKDIR}/gentoo-headers-base-${PV}
+S=${WORKDIR}/linux-4.15-rc4
 
 src_unpack() {
 	unpack ${A}
-}
-
-src_prepare() {
-	[[ -n ${PATCH_VER} ]] && EPATCH_SUFFIX="patch" epatch "${WORKDIR}"/${PV}
-	patch -p1 < "${FILESDIR}/${P}-riscv-${PR}.patch" || die "RISC-V"
 }
 
 src_install() {
@@ -37,9 +28,6 @@ src_install() {
 	# hrm, build system sucks
 	find "${ED}" '(' -name '.install' -o -name '*.cmd' ')' -delete
 	find "${ED}" -depth -type d -delete 2>/dev/null
-
-	# provided by libdrm (for now?)
-	rm -rf "${ED}"/$(kernel_header_destdir)/drm
 }
 
 src_test() {
