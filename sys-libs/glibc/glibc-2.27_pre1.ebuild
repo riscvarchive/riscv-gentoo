@@ -243,7 +243,6 @@ src_prepare() {
 	fi
 
 	epatch "${FILESDIR}/${P}.patch"
-	epatch "${FILESDIR}/${P}-noargs.patch"
 }
 
 glibc_do_configure() {
