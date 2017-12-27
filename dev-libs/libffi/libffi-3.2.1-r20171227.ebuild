@@ -2,7 +2,7 @@
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=5
-inherit eutils libtool multilib multilib-minimal toolchain-funcs
+inherit autotools eutils libtool multilib multilib-minimal toolchain-funcs
 
 DESCRIPTION="a portable, high level programming interface to various calling conventions"
 HOMEPAGE="https://sourceware.org/libffi/"
@@ -44,6 +44,7 @@ src_prepare() {
 	epatch "${FILESDIR}"/${P}-riscv-${PR}.patch
 	epatch_user
 	elibtoolize
+	eautoreconf
 }
 
 multilib_src_configure() {
