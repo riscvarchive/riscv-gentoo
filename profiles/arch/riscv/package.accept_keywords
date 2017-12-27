@@ -110,6 +110,10 @@ virtual/perl-File-Temp amd64
 virtual/service-manager amd64
 virtual/shadow amd64
 virtual/ssh amd64
+virtual/libelf amd64
+virtual/tmpfiles amd64
+sys-apps/opentmpfiles amd64
+dev-python/pyblake2 amd64
 
 # A GCC configure bug requires these to be built on RISC-V when
 # cross-compiling, and they seem to work OK.
@@ -125,3 +129,9 @@ sys-apps/attr amd64
 # Not it @system, but didn't require any porting effort
 media-libs/opencv amd64
 ~dev-libs/protobuf-2.6.1 ~amd64
+
+# These have RISC-V ports, but they're not yet keyworded as riscv yet because
+# we don't have any upstream support.
+~sys-devel/gcc-7.2.0 ~amd64
+>=sys-devel/gcc-7.2.0 amd64
+>=sys-devel/binutils-2.29 amd64
