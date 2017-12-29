@@ -4,9 +4,6 @@
 # packages myself (which would be a nightmare, as I'd end up with a
 # giant overlay).  This list should eventually go away...
 
-# Upstream packages that actually support RISC-V
-=sys-devel/binutils-2.28 **
-
 # @system
 app-admin/eselect amd64
 app-admin/eselect-python amd64
@@ -132,4 +129,3 @@ media-libs/opencv amd64
 # we don't have any upstream support.
 ~sys-devel/gcc-7.2.0 ~amd64
 >=sys-devel/gcc-7.2.0 amd64
->=sys-devel/binutils-2.29 amd64

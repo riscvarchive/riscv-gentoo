@@ -1,0 +1,1866 @@
+diff --git a/bfd/elfnn-riscv.c b/bfd/elfnn-riscv.c
+index 6d297cea7d73..5686247bc2b5 100644
+--- a/bfd/elfnn-riscv.c
++++ b/bfd/elfnn-riscv.c
+@@ -32,6 +32,9 @@
+ #include "elf/riscv.h"
+ #include "opcode/riscv.h"
+ 
++/* Internal relocations used exclusively by the relaxation pass.  */
++#define R_RISCV_DELETE (R_RISCV_max + 1)
++
+ #define ARCH_SIZE NN
+ 
+ #define MINUS_ONE ((bfd_vma)0 - 1)
+@@ -127,6 +130,9 @@ struct riscv_elf_link_hash_table
+ 
+   /* Small local sym to section mapping cache.  */
+   struct sym_cache sym_cache;
++
++  /* The max alignment of output sections.  */
++  bfd_vma max_alignment;
+ };
+ 
+ 
+@@ -274,6 +280,7 @@ riscv_elf_link_hash_table_create (bfd *abfd)
+       return NULL;
+     }
+ 
++  ret->max_alignment = (bfd_vma) -1;
+   return &ret->elf.root;
+ }
+ 
+@@ -1573,6 +1580,9 @@ perform_relocation (const reloc_howto_type *howto,
+     case R_RISCV_TLS_DTPREL64:
+       break;
+ 
++    case R_RISCV_DELETE:
++      return bfd_reloc_ok;
++
+     default:
+       return bfd_reloc_notsupported;
+     }
+@@ -1651,9 +1661,50 @@ riscv_free_pcrel_relocs (riscv_pcrel_relocs *p)
+ }
+ 
+ static bfd_boolean
+-riscv_record_pcrel_hi_reloc (riscv_pcrel_relocs *p, bfd_vma addr, bfd_vma value)
++riscv_zero_pcrel_hi_reloc (Elf_Internal_Rela *rel,
++			   struct bfd_link_info *info,
++			   bfd_vma pc,
++			   bfd_vma addr,
++			   bfd_byte *contents,
++			   const reloc_howto_type *howto,
++			   bfd *input_bfd)
+ {
+-  riscv_pcrel_hi_reloc entry = {addr, value - addr};
++  /* We may need to reference low addreses in PC-relative modes even when the
++   * PC is far away from these addresses.  For example, undefweak references
++   * need to produce the address 0 when linked.  As 0 is far from the arbitrary
++   * addresses that we can link PC-relative programs at, the linker can't
++   * actually relocate references to those symbols.  In order to allow these
++   * programs to work we simply convert the PC-relative auipc sequences to
++   * 0-relative lui sequences.  */
++  if (bfd_link_pic (info))
++    return FALSE;
++
++  /* If it's possible to reference the symbol using auipc we do so, as that's
++   * more in the spirit of the PC-relative relocations we're processing.  */
++  bfd_vma offset = addr - pc;
++  if (ARCH_SIZE == 32 || VALID_UTYPE_IMM (RISCV_CONST_HIGH_PART (offset)))
++    return FALSE;
++
++  /* If it's impossible to reference this with a LUI-based offset then don't
++   * bother to convert it at all so users still see the PC-relative relocation
++   * in the truncation message.  */
++  if (ARCH_SIZE > 32 && !VALID_UTYPE_IMM (RISCV_CONST_HIGH_PART (addr)))
++    return FALSE;
++
++  rel->r_info = ELFNN_R_INFO(addr, R_RISCV_HI20);
++
++  bfd_vma insn = bfd_get(howto->bitsize, input_bfd, contents + rel->r_offset);
++  insn = (insn & ~MASK_AUIPC) | MATCH_LUI;
++  bfd_put(howto->bitsize, input_bfd, insn, contents + rel->r_offset);
++  return TRUE;
++}
++
++static bfd_boolean
++riscv_record_pcrel_hi_reloc (riscv_pcrel_relocs *p, bfd_vma addr,
++			     bfd_vma value, bfd_boolean absolute)
++{
++  bfd_vma offset = absolute ? value : value - addr;
++  riscv_pcrel_hi_reloc entry = {addr, offset};
+   riscv_pcrel_hi_reloc **slot =
+     (riscv_pcrel_hi_reloc **) htab_find_slot (p->hi_relocs, &entry, INSERT);
+ 
+@@ -1758,6 +1809,7 @@ riscv_elf_relocate_section (bfd *output_bfd,
+   Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (input_bfd);
+   struct elf_link_hash_entry **sym_hashes = elf_sym_hashes (input_bfd);
+   bfd_vma *local_got_offsets = elf_local_got_offsets (input_bfd);
++  bfd_boolean absolute;
+ 
+   if (!riscv_init_pcrel_relocs (&pcrel_relocs))
+     return FALSE;
+@@ -1853,6 +1905,7 @@ riscv_elf_relocate_section (bfd *output_bfd,
+ 	case R_RISCV_SET16:
+ 	case R_RISCV_SET32:
+ 	case R_RISCV_32_PCREL:
++	case R_RISCV_DELETE:
+ 	  /* These require no special handling beyond perform_relocation.  */
+ 	  break;
+ 
+@@ -1931,7 +1984,17 @@ riscv_elf_relocate_section (bfd *output_bfd,
+ 		}
+ 	    }
+ 	  relocation = sec_addr (htab->elf.sgot) + off;
+-	  if (!riscv_record_pcrel_hi_reloc (&pcrel_relocs, pc, relocation))
++	  absolute = riscv_zero_pcrel_hi_reloc (rel,
++						info,
++						pc,
++						relocation,
++						contents,
++						howto,
++						input_bfd);
++	  r_type = ELFNN_R_TYPE (rel->r_info);
++	  howto = riscv_elf_rtype_to_howto (r_type);
++	  if (!riscv_record_pcrel_hi_reloc (&pcrel_relocs, pc,
++					    relocation, absolute))
+ 	    r = bfd_reloc_overflow;
+ 	  break;
+ 
+@@ -2017,8 +2080,18 @@ riscv_elf_relocate_section (bfd *output_bfd,
+ 	  }
+ 
+ 	case R_RISCV_PCREL_HI20:
++	  absolute = riscv_zero_pcrel_hi_reloc (rel,
++						info,
++						pc,
++						relocation,
++						contents,
++						howto,
++						input_bfd);
++	  r_type = ELFNN_R_TYPE (rel->r_info);
++	  howto = riscv_elf_rtype_to_howto (r_type);
+ 	  if (!riscv_record_pcrel_hi_reloc (&pcrel_relocs, pc,
+-					    relocation + rel->r_addend))
++					    relocation + rel->r_addend,
++					    absolute))
+ 	    r = bfd_reloc_overflow;
+ 	  break;
+ 
+@@ -2214,7 +2287,8 @@ riscv_elf_relocate_section (bfd *output_bfd,
+ 
+ 	  BFD_ASSERT (off < (bfd_vma) -2);
+ 	  relocation = sec_addr (htab->elf.sgot) + off + (is_ie ? ie_off : 0);
+-	  if (!riscv_record_pcrel_hi_reloc (&pcrel_relocs, pc, relocation))
++	  if (!riscv_record_pcrel_hi_reloc (&pcrel_relocs, pc,
++					    relocation, FALSE))
+ 	    r = bfd_reloc_overflow;
+ 	  unresolved_reloc = FALSE;
+ 	  break;
+@@ -2704,10 +2778,155 @@ riscv_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr, size_t count)
+   return TRUE;
+ }
+ 
++/* A second format for recording PC-relative hi relocations.  This stores the
++   information required to relax them to GP-relative addresses.  */
++
++typedef struct riscv_pcgp_hi_reloc riscv_pcgp_hi_reloc;
++struct riscv_pcgp_hi_reloc
++{
++  bfd_vma hi_sec_off;
++  bfd_vma hi_addend;
++  bfd_vma hi_addr;
++  unsigned hi_sym;
++  asection *sym_sec;
++  riscv_pcgp_hi_reloc *next;
++};
++
++typedef struct riscv_pcgp_lo_reloc riscv_pcgp_lo_reloc;
++struct riscv_pcgp_lo_reloc
++{
++  bfd_vma hi_sec_off;
++  riscv_pcgp_lo_reloc *next;
++};
++
++typedef struct
++{
++  riscv_pcgp_hi_reloc *hi;
++  riscv_pcgp_lo_reloc *lo;
++} riscv_pcgp_relocs;
++
++static bfd_boolean
++riscv_init_pcgp_relocs (riscv_pcgp_relocs *p)
++{
++  p->hi = NULL;
++  p->lo = NULL;
++  return TRUE;
++}
++
++static void
++riscv_free_pcgp_relocs (riscv_pcgp_relocs *p,
++			bfd *abfd ATTRIBUTE_UNUSED,
++			asection *sec ATTRIBUTE_UNUSED)
++{
++  riscv_pcgp_hi_reloc *c;
++  riscv_pcgp_lo_reloc *l;
++
++  for (c = p->hi; c != NULL;)
++    {
++      riscv_pcgp_hi_reloc *next = c->next;
++      free (c);
++      c = next;
++    }
++
++  for (l = p->lo; l != NULL;)
++    {
++      riscv_pcgp_lo_reloc *next = l->next;
++      free (l);
++      l = next;
++    }
++}
++
++static bfd_boolean
++riscv_record_pcgp_hi_reloc (riscv_pcgp_relocs *p, bfd_vma hi_sec_off,
++			    bfd_vma hi_addend, bfd_vma hi_addr,
++			    unsigned hi_sym, asection *sym_sec)
++{
++  riscv_pcgp_hi_reloc *new = bfd_malloc (sizeof(*new));
++  if (!new)
++    return FALSE;
++  new->hi_sec_off = hi_sec_off;
++  new->hi_addend = hi_addend;
++  new->hi_addr = hi_addr;
++  new->hi_sym = hi_sym;
++  new->sym_sec = sym_sec;
++  new->next = p->hi;
++  p->hi = new;
++  return TRUE;
++}
++
++static riscv_pcgp_hi_reloc *
++riscv_find_pcgp_hi_reloc(riscv_pcgp_relocs *p, bfd_vma hi_sec_off)
++{
++  riscv_pcgp_hi_reloc *c;
++
++  for (c = p->hi; c != NULL; c = c->next)
++    if (c->hi_sec_off == hi_sec_off)
++      return c;
++  return NULL;
++}
++
++static bfd_boolean
++riscv_delete_pcgp_hi_reloc(riscv_pcgp_relocs *p, bfd_vma hi_sec_off)
++{
++  bfd_boolean out = FALSE;
++  riscv_pcgp_hi_reloc *c;
++
++  for (c = p->hi; c != NULL; c = c->next)
++      if (c->hi_sec_off == hi_sec_off)
++	out = TRUE;
++
++  return out;
++}
++
++static bfd_boolean
++riscv_use_pcgp_hi_reloc(riscv_pcgp_relocs *p, bfd_vma hi_sec_off)
++{
++  bfd_boolean out = FALSE;
++  riscv_pcgp_hi_reloc *c;
++
++  for (c = p->hi; c != NULL; c = c->next)
++    if (c->hi_sec_off == hi_sec_off)
++      out = TRUE;
++
++  return out;
++}
++
++static bfd_boolean
++riscv_record_pcgp_lo_reloc (riscv_pcgp_relocs *p, bfd_vma hi_sec_off)
++{
++  riscv_pcgp_lo_reloc *new = bfd_malloc (sizeof(*new));
++  if (!new)
++    return FALSE;
++  new->hi_sec_off = hi_sec_off;
++  new->next = p->lo;
++  p->lo = new;
++  return TRUE;
++}
++
++static bfd_boolean
++riscv_find_pcgp_lo_reloc (riscv_pcgp_relocs *p, bfd_vma hi_sec_off)
++{
++  riscv_pcgp_lo_reloc *c;
++
++  for (c = p->lo; c != NULL; c = c->next)
++    if (c->hi_sec_off == hi_sec_off)
++      return TRUE;
++  return FALSE;
++}
++
++static bfd_boolean
++riscv_delete_pcgp_lo_reloc (riscv_pcgp_relocs *p ATTRIBUTE_UNUSED,
++			    bfd_vma lo_sec_off ATTRIBUTE_UNUSED,
++			    size_t bytes ATTRIBUTE_UNUSED)
++{
++  return TRUE;
++}
++
+ typedef bfd_boolean (*relax_func_t) (bfd *, asection *, asection *,
+ 				     struct bfd_link_info *,
+ 				     Elf_Internal_Rela *,
+-				     bfd_vma, bfd_vma, bfd_vma, bfd_boolean *);
++				     bfd_vma, bfd_vma, bfd_vma, bfd_boolean *,
++				     riscv_pcgp_relocs *);
+ 
+ /* Relax AUIPC + JALR into JAL.  */
+ 
+@@ -2718,7 +2937,8 @@ _bfd_riscv_relax_call (bfd *abfd, asection *sec, asection *sym_sec,
+ 		       bfd_vma symval,
+ 		       bfd_vma max_alignment,
+ 		       bfd_vma reserve_size ATTRIBUTE_UNUSED,
+-		       bfd_boolean *again)
++		       bfd_boolean *again,
++		       riscv_pcgp_relocs *pcgp_relocs ATTRIBUTE_UNUSED)
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   bfd_signed_vma foff = symval - (sec_addr (sec) + rel->r_offset);
+@@ -2801,7 +3021,8 @@ _bfd_riscv_relax_lui (bfd *abfd,
+ 		      bfd_vma symval,
+ 		      bfd_vma max_alignment,
+ 		      bfd_vma reserve_size,
+-		      bfd_boolean *again)
++		      bfd_boolean *again,
++		      riscv_pcgp_relocs *pcgp_relocs ATTRIBUTE_UNUSED)
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   bfd_vma gp = riscv_global_pointer_value (link_info);
+@@ -2861,9 +3082,10 @@ _bfd_riscv_relax_lui (bfd *abfd,
+       && VALID_RVC_LUI_IMM (RISCV_CONST_HIGH_PART (symval))
+       && VALID_RVC_LUI_IMM (RISCV_CONST_HIGH_PART (symval + ELF_MAXPAGESIZE)))
+     {
+-      /* Replace LUI with C.LUI if legal (i.e., rd != x2/sp).  */
++      /* Replace LUI with C.LUI if legal (i.e., rd != x0 and rd != x2/sp).  */
+       bfd_vma lui = bfd_get_32 (abfd, contents + rel->r_offset);
+-      if (((lui >> OP_SH_RD) & OP_MASK_RD) == X_SP)
++      unsigned rd = ((unsigned)lui >> OP_SH_RD) & OP_MASK_RD;
++      if (rd == 0 || rd == X_SP)
+ 	return TRUE;
+ 
+       lui = (lui & (OP_MASK_RD << OP_SH_RD)) | MATCH_C_LUI;
+@@ -2890,7 +3112,8 @@ _bfd_riscv_relax_tls_le (bfd *abfd,
+ 			 bfd_vma symval,
+ 			 bfd_vma max_alignment ATTRIBUTE_UNUSED,
+ 			 bfd_vma reserve_size ATTRIBUTE_UNUSED,
+-			 bfd_boolean *again)
++			 bfd_boolean *again,
++			 riscv_pcgp_relocs *prcel_relocs ATTRIBUTE_UNUSED)
+ {
+   /* See if this symbol is in range of tp.  */
+   if (RISCV_CONST_HIGH_PART (tpoff (link_info, symval)) != 0)
+@@ -2923,13 +3146,14 @@ _bfd_riscv_relax_tls_le (bfd *abfd,
+ 
+ static bfd_boolean
+ _bfd_riscv_relax_align (bfd *abfd, asection *sec,
+-			asection *sym_sec ATTRIBUTE_UNUSED,
++			asection *sym_sec,
+ 			struct bfd_link_info *link_info ATTRIBUTE_UNUSED,
+ 			Elf_Internal_Rela *rel,
+ 			bfd_vma symval,
+ 			bfd_vma max_alignment ATTRIBUTE_UNUSED,
+ 			bfd_vma reserve_size ATTRIBUTE_UNUSED,
+-			bfd_boolean *again ATTRIBUTE_UNUSED)
++			bfd_boolean *again ATTRIBUTE_UNUSED,
++			riscv_pcgp_relocs *pcrel_relocs ATTRIBUTE_UNUSED)
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   bfd_vma alignment = 1, pos;
+@@ -2945,7 +3169,14 @@ _bfd_riscv_relax_align (bfd *abfd, asection *sec,
+ 
+   /* Make sure there are enough NOPs to actually achieve the alignment.  */
+   if (rel->r_addend < nop_bytes)
+-    return FALSE;
++    {
++      (*_bfd_error_handler)
++	(_("%B(%A+0x%lx): %d bytes required for alignment"
++	   "to %d-byte boundary, but only %d present"),
++	   abfd, sym_sec, rel->r_offset, nop_bytes, alignment, rel->r_addend);
++      bfd_set_error (bfd_error_bad_value);
++      return FALSE;
++    }
+ 
+   /* Delete the reloc.  */
+   rel->r_info = ELFNN_R_INFO (0, R_RISCV_NONE);
+@@ -2967,8 +3198,141 @@ _bfd_riscv_relax_align (bfd *abfd, asection *sec,
+ 				   rel->r_addend - nop_bytes);
+ }
+ 
+-/* Relax a section.  Pass 0 shortens code sequences unless disabled.
+-   Pass 1, which cannot be disabled, handles code alignment directives.  */
++/* Relax PC-relative references to GP-relative references.  */
++
++static bfd_boolean
++_bfd_riscv_relax_pc  (bfd *abfd,
++		      asection *sec,
++		      asection *sym_sec,
++		      struct bfd_link_info *link_info,
++		      Elf_Internal_Rela *rel,
++		      bfd_vma symval,
++		      bfd_vma max_alignment,
++		      bfd_vma reserve_size,
++		      bfd_boolean *again ATTRIBUTE_UNUSED,
++		      riscv_pcgp_relocs *pcgp_relocs)
++{
++  bfd_vma gp = riscv_global_pointer_value (link_info);
++
++  BFD_ASSERT (rel->r_offset + 4 <= sec->size);
++
++  /* Chain the _LO relocs to their cooresponding _HI reloc to compute the
++   * actual target address.  */
++  riscv_pcgp_hi_reloc hi_reloc = {0};
++  switch (ELFNN_R_TYPE (rel->r_info))
++    {
++    case R_RISCV_PCREL_LO12_I:
++    case R_RISCV_PCREL_LO12_S:
++      {
++	riscv_pcgp_hi_reloc *hi = riscv_find_pcgp_hi_reloc (pcgp_relocs,
++							    symval - sec_addr(sym_sec));
++	if (hi == NULL)
++	  {
++	    riscv_record_pcgp_lo_reloc (pcgp_relocs, symval - sec_addr(sym_sec));
++	    return TRUE;
++	  }
++
++	hi_reloc = *hi;
++	symval = hi_reloc.hi_addr;
++	sym_sec = hi_reloc.sym_sec;
++	if (!riscv_use_pcgp_hi_reloc(pcgp_relocs, hi->hi_sec_off))
++	  (*_bfd_error_handler)
++	   (_("%B(%A+0x%lx): Unable to clear RISCV_PCREL_HI20 reloc"
++	      "for cooresponding RISCV_PCREL_LO12 reloc"),
++	    abfd, sec, rel->r_offset);
++      }
++      break;
++
++    case R_RISCV_PCREL_HI20:
++      /* Mergeable symbols and code might later move out of range.  */
++      if (sym_sec->flags & (SEC_MERGE | SEC_CODE))
++	return TRUE;
++
++      /* If the cooresponding lo relocation has already been seen then it's not
++       * safe to relax this relocation.  */
++      if (riscv_find_pcgp_lo_reloc (pcgp_relocs, rel->r_offset))
++        return TRUE;
++
++      break;
++
++    default:
++      abort ();
++    }
++
++  if (gp)
++    {
++      /* If gp and the symbol are in the same output section, then
++	 consider only that section's alignment.  */
++      struct bfd_link_hash_entry *h =
++	bfd_link_hash_lookup (link_info->hash, RISCV_GP_SYMBOL, FALSE, FALSE, TRUE);
++      if (h->u.def.section->output_section == sym_sec->output_section)
++	max_alignment = (bfd_vma) 1 << sym_sec->output_section->alignment_power;
++    }
++
++  /* Is the reference in range of x0 or gp?
++     Valid gp range conservatively because of alignment issue.  */
++  if (VALID_ITYPE_IMM (symval)
++      || (symval >= gp
++	  && VALID_ITYPE_IMM (symval - gp + max_alignment + reserve_size))
++      || (symval < gp
++	  && VALID_ITYPE_IMM (symval - gp - max_alignment - reserve_size)))
++    {
++      unsigned sym = hi_reloc.hi_sym;
++      switch (ELFNN_R_TYPE (rel->r_info))
++	{
++	case R_RISCV_PCREL_LO12_I:
++	  rel->r_info = ELFNN_R_INFO (sym, R_RISCV_GPREL_I);
++	  rel->r_addend += hi_reloc.hi_addend;
++	  return riscv_delete_pcgp_lo_reloc (pcgp_relocs, rel->r_offset, 4);
++
++	case R_RISCV_PCREL_LO12_S:
++	  rel->r_info = ELFNN_R_INFO (sym, R_RISCV_GPREL_S);
++	  rel->r_addend += hi_reloc.hi_addend;
++	  return riscv_delete_pcgp_lo_reloc (pcgp_relocs, rel->r_offset, 4);
++
++	case R_RISCV_PCREL_HI20:
++          riscv_record_pcgp_hi_reloc (pcgp_relocs,
++				      rel->r_offset,
++				      rel->r_addend,
++				      symval,
++				      ELFNN_R_SYM(rel->r_info),
++				      sym_sec);
++	  /* We can delete the unnecessary AUIPC and reloc.  */
++	  rel->r_info = ELFNN_R_INFO (0, R_RISCV_DELETE);
++	  rel->r_addend = 4;
++	  return riscv_delete_pcgp_hi_reloc (pcgp_relocs, rel->r_offset);
++
++	default:
++	  abort ();
++	}
++    }
++
++  return TRUE;
++}
++
++/* Relax PC-relative references to GP-relative references.  */
++
++static bfd_boolean
++_bfd_riscv_relax_delete (bfd *abfd,
++			 asection *sec,
++			 asection *sym_sec ATTRIBUTE_UNUSED,
++			 struct bfd_link_info *link_info ATTRIBUTE_UNUSED,
++			 Elf_Internal_Rela *rel,
++			 bfd_vma symval ATTRIBUTE_UNUSED,
++			 bfd_vma max_alignment ATTRIBUTE_UNUSED,
++			 bfd_vma reserve_size ATTRIBUTE_UNUSED,
++			 bfd_boolean *again ATTRIBUTE_UNUSED,
++			 riscv_pcgp_relocs *pcgp_relocs ATTRIBUTE_UNUSED)
++{
++  if (!riscv_relax_delete_bytes(abfd, sec, rel->r_offset, rel->r_addend))
++    return FALSE;
++  rel->r_info = ELFNN_R_INFO(0, R_RISCV_NONE);
++  return TRUE;
++}
++
++/* Relax a section.  Pass 0 shortens code sequences unless disabled.  Pass 1
++   deletes the bytes that pass 0 made obselete.  Pass 2, which cannot be
++   disabled, handles code alignment directives.  */
+ 
+ static bfd_boolean
+ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+@@ -2982,6 +3346,7 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+   bfd_boolean ret = FALSE;
+   unsigned int i;
+   bfd_vma max_alignment, reserve_size = 0;
++  riscv_pcgp_relocs pcgp_relocs;
+ 
+   *again = FALSE;
+ 
+@@ -2993,6 +3358,8 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+ 	  && info->relax_pass == 0))
+     return TRUE;
+ 
++  riscv_init_pcgp_relocs (&pcgp_relocs);
++
+   /* Read this BFD's relocs if we haven't done so already.  */
+   if (data->relocs)
+     relocs = data->relocs;
+@@ -3000,7 +3367,17 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+ 						 info->keep_memory)))
+     goto fail;
+ 
+-  max_alignment = _bfd_riscv_get_max_alignment (sec);
++  if (htab)
++    {
++      max_alignment = htab->max_alignment;
++      if (max_alignment == (bfd_vma) -1)
++	{
++	  max_alignment = _bfd_riscv_get_max_alignment (sec);
++	  htab->max_alignment = max_alignment;
++	}
++    }
++  else
++    max_alignment = _bfd_riscv_get_max_alignment (sec);
+ 
+   /* Examine and consider relaxing each reloc.  */
+   for (i = 0; i < sec->reloc_count; i++)
+@@ -3011,6 +3388,7 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+       int type = ELFNN_R_TYPE (rel->r_info);
+       bfd_vma symval;
+ 
++      relax_func = NULL;
+       if (info->relax_pass == 0)
+ 	{
+ 	  if (type == R_RISCV_CALL || type == R_RISCV_CALL_PLT)
+@@ -3019,6 +3397,11 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+ 		   || type == R_RISCV_LO12_I
+ 		   || type == R_RISCV_LO12_S)
+ 	    relax_func = _bfd_riscv_relax_lui;
++	  else if (!bfd_link_pic(info)
++		   && (type == R_RISCV_PCREL_HI20
++		   || type == R_RISCV_PCREL_LO12_I
++		   || type == R_RISCV_PCREL_LO12_S))
++	    relax_func = _bfd_riscv_relax_pc;
+ 	  else if (type == R_RISCV_TPREL_HI20
+ 		   || type == R_RISCV_TPREL_ADD
+ 		   || type == R_RISCV_TPREL_LO12_I
+@@ -3036,7 +3419,9 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+ 	  /* Skip over the R_RISCV_RELAX.  */
+ 	  i++;
+ 	}
+-      else if (type == R_RISCV_ALIGN)
++      else if (info->relax_pass == 1 && type == R_RISCV_DELETE)
++        relax_func = _bfd_riscv_relax_delete;
++      else if (info->relax_pass == 2 && type == R_RISCV_ALIGN)
+ 	relax_func = _bfd_riscv_relax_align;
+       else
+ 	continue;
+@@ -3107,7 +3492,8 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+       symval += rel->r_addend;
+ 
+       if (!relax_func (abfd, sec, sym_sec, info, rel, symval,
+-		       max_alignment, reserve_size, again))
++		       max_alignment, reserve_size, again,
++		       &pcgp_relocs))
+ 	goto fail;
+     }
+ 
+@@ -3116,6 +3502,7 @@ _bfd_riscv_relax_section (bfd *abfd, asection *sec,
+ fail:
+   if (relocs != data->relocs)
+     free (relocs);
++  riscv_free_pcgp_relocs(&pcgp_relocs, abfd, sec);
+ 
+   return ret;
+ }
+diff --git a/bfd/elfxx-riscv.c b/bfd/elfxx-riscv.c
+index 5fa98f37e98e..55db39218e40 100644
+--- a/bfd/elfxx-riscv.c
++++ b/bfd/elfxx-riscv.c
+@@ -32,6 +32,13 @@
+ 
+ #define MINUS_ONE ((bfd_vma)0 - 1)
+ 
++/* Special handler for ADD/SUB relocations that allows them to be filled out
++   both in the pre-linked and post-linked file.  This is necessary to make
++   pre-linked debug info work, as due to linker relaxations we need to emit
++   relocations for the debug info.  */
++static bfd_reloc_status_type riscv_elf_add_sub_reloc
++  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
++
+ /* The relocation table used for SHT_RELA sections.  */
+ 
+ static reloc_howto_type howto_table[] =
+@@ -480,7 +487,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_ADD8",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -495,7 +502,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_ADD16",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -510,7 +517,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_ADD32",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -525,7 +532,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_ADD64",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -540,7 +547,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_SUB8",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -555,7 +562,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_SUB16",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -570,7 +577,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_SUB32",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -585,7 +592,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_SUB64",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -767,7 +774,7 @@ static reloc_howto_type howto_table[] =
+ 	 FALSE,				/* pc_relative */
+ 	 0,				/* bitpos */
+ 	 complain_overflow_dont,	/* complain_on_overflow */
+-	 bfd_elf_generic_reloc,		/* special_function */
++	 riscv_elf_add_sub_reloc,	/* special_function */
+ 	 "R_RISCV_SUB6",		/* name */
+ 	 FALSE,				/* partial_inplace */
+ 	 0,				/* src_mask */
+@@ -951,3 +958,54 @@ riscv_elf_rtype_to_howto (unsigned int r_type)
+     }
+   return &howto_table[r_type];
+ }
++
++/* Special_function of RISCV_ADD and RISCV_SUB relocations.  */
++
++static bfd_reloc_status_type
++riscv_elf_add_sub_reloc (bfd *abfd,
++			 arelent *reloc_entry,
++			 asymbol *symbol,
++			 void *data,
++			 asection *input_section,
++			 bfd *output_bfd,
++			 char **error_message ATTRIBUTE_UNUSED)
++{
++  reloc_howto_type *howto = reloc_entry->howto;
++  bfd_vma relocation;
++
++  if (output_bfd != NULL
++      && (symbol->flags & BSF_SECTION_SYM) == 0
++      && (!reloc_entry->howto->partial_inplace || reloc_entry->addend == 0))
++    {
++      reloc_entry->address += input_section->output_offset;
++      return bfd_reloc_ok;
++    }
++
++  if (output_bfd != NULL)
++    return bfd_reloc_continue;
++
++  relocation = symbol->value + symbol->section->output_section->vma
++    + symbol->section->output_offset + reloc_entry->addend;
++  bfd_vma old_value = bfd_get (howto->bitsize, abfd,
++			       data + reloc_entry->address);
++
++  switch (howto->type)
++    {
++    case R_RISCV_ADD8:
++    case R_RISCV_ADD16:
++    case R_RISCV_ADD32:
++    case R_RISCV_ADD64:
++      relocation = old_value + relocation;
++      break;
++    case R_RISCV_SUB6:
++    case R_RISCV_SUB8:
++    case R_RISCV_SUB16:
++    case R_RISCV_SUB32:
++    case R_RISCV_SUB64:
++      relocation = old_value - relocation;
++      break;
++    }
++  bfd_put (howto->bitsize, abfd, relocation, data + reloc_entry->address);
++
++  return bfd_reloc_ok;
++}
+diff --git a/binutils/MAINTAINERS b/binutils/MAINTAINERS
+index 8a1b152849ec..2dc22c7c55e4 100644
+--- a/binutils/MAINTAINERS
++++ b/binutils/MAINTAINERS
+@@ -117,8 +117,9 @@ responsibility among the other maintainers.
+   PPC		   Alan Modra <amodra@gmail.com>
+   PPC		   Peter Bergner <bergner@vnet.ibm.com>
+   PPC vector ext   Aldy Hernandez <aldyh@redhat.com>
+-  RISC-V           Palmer Dabbelt <palmer@dabbelt.com>
+-  RISC-V           Andrew Waterman <andrew@sifive.com> 
++  RISC-V	   Palmer Dabbelt <palmer@sifive.com>
++  RISC-V	   Andrew Waterman <andrew@sifive.com>
++  RISC-V	   Jim Wilson <jimw@sifive.com>
+   RL78             DJ Delorie <dj@redhat.com>
+   RX               DJ Delorie <dj@redhat.com>
+   RX               Nick Clifton <nickc@redhat.com>
+diff --git a/binutils/testsuite/binutils-all/objdump.exp b/binutils/testsuite/binutils-all/objdump.exp
+index 3dee405340a2..ddffdd1cb897 100644
+--- a/binutils/testsuite/binutils-all/objdump.exp
++++ b/binutils/testsuite/binutils-all/objdump.exp
+@@ -337,7 +337,7 @@ if { ![is_elf_format] } then {
+ 	send_log "\n"
+     }
+ 
+-    setup_xfail "msp430-*-*" "nds32*-*-*" "riscv*-*-*"
++    setup_xfail "msp430-*-*" "nds32*-*-*"
+     if { [regexp_diff objdump.out $srcdir/$subdir/dw2-ranges.W] } then {
+ 	fail "objdump -W for debug_ranges"
+     } else {
+diff --git a/gas/config/tc-riscv.c b/gas/config/tc-riscv.c
+index 55c41c5db3c9..8bb400e1001b 100644
+--- a/gas/config/tc-riscv.c
++++ b/gas/config/tc-riscv.c
+@@ -147,8 +147,8 @@ riscv_add_subset (const char *subset)
+ static void
+ riscv_set_arch (const char *s)
+ {
+-  const char *all_subsets = "imafdc";
+-  const char *extension = NULL;
++  const char *all_subsets = "imafdqc";
++  char *extension = NULL;
+   const char *p = s;
+ 
+   riscv_clear_subsets();
+@@ -173,7 +173,7 @@ riscv_set_arch (const char *s)
+ 
+       case 'g':
+ 	p++;
+-	for ( ; *all_subsets != 'c'; all_subsets++)
++	for ( ; *all_subsets != 'q'; all_subsets++)
+ 	  {
+ 	    const char subset[] = {*all_subsets, '\0'};
+ 	    riscv_add_subset (subset);
+@@ -188,7 +188,8 @@ riscv_set_arch (const char *s)
+     {
+       if (*p == 'x')
+ 	{
+-	  char *subset = xstrdup (p), *q = subset;
++	  char *subset = xstrdup (p);
++	  char *q = subset;
+ 
+ 	  while (*++q != '\0' && *q != '_')
+ 	    ;
+@@ -200,7 +201,6 @@ riscv_set_arch (const char *s)
+ 	  extension = subset;
+ 	  riscv_add_subset (subset);
+ 	  p += strlen (subset);
+-	  free (subset);
+ 	}
+       else if (*p == '_')
+ 	p++;
+@@ -211,15 +211,11 @@ riscv_set_arch (const char *s)
+ 	  all_subsets++;
+ 	  p++;
+ 	}
+-      else if (*p == 'q')
+-	{
+-	  const char subset[] = {*p, 0};
+-	  riscv_add_subset (subset);
+-	  p++;
+-	}
+       else
+ 	as_fatal ("-march=%s: unsupported ISA subset `%c'", s, *p);
+     }
++
++  free (extension);
+ }
+ 
+ /* Handle of the OPCODE hash table.  */
+@@ -647,6 +643,7 @@ md_begin (void)
+   hash_reg_names (RCLASS_FPR, riscv_fpr_names_abi, NFPR);
+ 
+ #define DECLARE_CSR(name, num) hash_reg_name (RCLASS_CSR, #name, num);
++#define DECLARE_CSR_ALIAS(name, num) DECLARE_CSR(name, num);
+ #include "opcode/riscv-opc.h"
+ #undef DECLARE_CSR
+ 
+@@ -719,6 +716,21 @@ append_insn (struct riscv_cl_insn *ip, expressionS *address_expr,
+ 
+   add_fixed_insn (ip);
+   install_insn (ip);
++
++  /* We need to start a new frag after any instruction that can be
++     optimized away or compressed by the linker during relaxation, to prevent
++     the assembler from computing static offsets across such an instruction.
++     This is necessary to get correct EH info.  */
++  if (reloc_type == BFD_RELOC_RISCV_CALL
++      || reloc_type == BFD_RELOC_RISCV_CALL_PLT
++      || reloc_type == BFD_RELOC_RISCV_HI20
++      || reloc_type == BFD_RELOC_RISCV_PCREL_HI20
++      || reloc_type == BFD_RELOC_RISCV_TPREL_HI20
++      || reloc_type == BFD_RELOC_RISCV_TPREL_ADD)
++    {
++      frag_wane (frag_now);
++      frag_new (0);
++    }
+ }
+ 
+ /* Build an instruction created by a macro expansion.  This is passed
+@@ -1173,6 +1185,25 @@ my_getSmallExpression (expressionS *ep, bfd_reloc_code_real_type *reloc,
+   return reloc_index;
+ }
+ 
++/* Detect and handle implicitly zero load-store offsets.  For example,
++   "lw t0, (t1)" is shorthand for "lw t0, 0(t1)".  Return TRUE iff such
++   an implicit offset was detected.  */
++
++static bfd_boolean
++riscv_handle_implicit_zero_offset (expressionS *expr, const char *s)
++{
++  /* Check whether there is only a single bracketed expression left.
++     If so, it must be the base register and the constant must be zero.  */
++  if (*s == '(' && strchr (s + 1, '(') == 0)
++    {
++      expr->X_op = O_constant;
++      expr->X_add_number = 0;
++      return TRUE;
++    }
++
++  return FALSE;
++}
++
+ /* This routine assembles an instruction into its binary format.  As a
+    side effect, it sets the global variable imm_reloc to the type of
+    relocation to do if one of the operands is an address expression.  */
+@@ -1313,6 +1344,8 @@ rvc_imm_done:
+ 		  ip->insn_opcode |= ENCODE_RVC_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'k':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_LW_IMM (imm_expr->X_add_number))
+@@ -1320,6 +1353,8 @@ rvc_imm_done:
+ 		  ip->insn_opcode |= ENCODE_RVC_LW_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'l':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_LD_IMM (imm_expr->X_add_number))
+@@ -1327,6 +1362,8 @@ rvc_imm_done:
+ 		  ip->insn_opcode |= ENCODE_RVC_LD_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'm':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_LWSP_IMM (imm_expr->X_add_number))
+@@ -1335,6 +1372,8 @@ rvc_imm_done:
+ 		    ENCODE_RVC_LWSP_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'n':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_LDSP_IMM (imm_expr->X_add_number))
+@@ -1368,6 +1407,8 @@ rvc_imm_done:
+ 		    ENCODE_RVC_ADDI16SP_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'M':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_SWSP_IMM (imm_expr->X_add_number))
+@@ -1376,6 +1417,8 @@ rvc_imm_done:
+ 		    ENCODE_RVC_SWSP_IMM (imm_expr->X_add_number);
+ 		  goto rvc_imm_done;
+ 		case 'N':
++		  if (riscv_handle_implicit_zero_offset (imm_expr, s))
++		    continue;
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
+ 		      || !VALID_RVC_SDSP_IMM (imm_expr->X_add_number))
+@@ -1606,12 +1649,7 @@ rvc_lui:
+ 	      p = percent_op_rtype;
+ 	      *imm_reloc = BFD_RELOC_UNUSED;
+ load_store:
+-	      /* Check whether there is only a single bracketed expression
+-		 left.  If so, it must be the base register and the
+-		 constant must be zero.  */
+-	      imm_expr->X_op = O_constant;
+-	      imm_expr->X_add_number = 0;
+-	      if (*s == '(' && strchr (s + 1, '(') == 0)
++	      if (riscv_handle_implicit_zero_offset (imm_expr, s))
+ 		continue;
+ alu_op:
+ 	      /* If this value won't fit into a 16 bit offset, then go
+@@ -1889,7 +1927,6 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+       break;
+ 
+     case BFD_RELOC_RISCV_GOT_HI20:
+-    case BFD_RELOC_RISCV_PCREL_HI20:
+     case BFD_RELOC_RISCV_ADD8:
+     case BFD_RELOC_RISCV_ADD16:
+     case BFD_RELOC_RISCV_ADD32:
+@@ -2082,8 +2119,12 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+       relaxable = TRUE;
+       break;
+ 
++    case BFD_RELOC_RISCV_PCREL_HI20:
+     case BFD_RELOC_RISCV_PCREL_LO12_S:
+     case BFD_RELOC_RISCV_PCREL_LO12_I:
++      relaxable = riscv_opts.relax;
++      break;
++
+     case BFD_RELOC_RISCV_ALIGN:
+       break;
+ 
+@@ -2278,30 +2319,21 @@ bfd_boolean
+ riscv_frag_align_code (int n)
+ {
+   bfd_vma bytes = (bfd_vma) 1 << n;
+-  bfd_vma min_text_alignment_order = riscv_opts.rvc ? 1 : 2;
+-  bfd_vma min_text_alignment = (bfd_vma) 1 << min_text_alignment_order;
+-
+-  /* First, get back to minimal alignment.  */
+-  frag_align_code (min_text_alignment_order, 0);
++  bfd_vma worst_case_bytes = bytes - (riscv_opts.rvc ? 2 : 4);
++  char *nops = frag_more (worst_case_bytes);
++  expressionS ex;
+ 
+   /* When not relaxing, riscv_handle_align handles code alignment.  */
+   if (!riscv_opts.relax)
+     return FALSE;
+ 
+-  if (bytes > min_text_alignment)
+-    {
+-      bfd_vma worst_case_bytes = bytes - min_text_alignment;
+-      char *nops = frag_more (worst_case_bytes);
+-      expressionS ex;
+-
+-      ex.X_op = O_constant;
+-      ex.X_add_number = worst_case_bytes;
++  ex.X_op = O_constant;
++  ex.X_add_number = worst_case_bytes;
+ 
+-      riscv_make_nops (nops, worst_case_bytes);
++  riscv_make_nops (nops, worst_case_bytes);
+ 
+-      fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
+-		   &ex, FALSE, BFD_RELOC_RISCV_ALIGN);
+-    }
++  fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
++	       &ex, FALSE, BFD_RELOC_RISCV_ALIGN);
+ 
+   return TRUE;
+ }
+diff --git a/gas/testsuite/gas/all/align.d b/gas/testsuite/gas/all/align.d
+index dec2168aa6f0..eb08d8ddcda7 100644
+--- a/gas/testsuite/gas/all/align.d
++++ b/gas/testsuite/gas/all/align.d
+@@ -2,7 +2,9 @@
+ #name: align
+ # The RX port will always replace zeros in any aligned area with NOPs,
+ # even if the user requested that they filled with zeros.
+-#not-target: m32c-* rx-*
++# RISC-V handles alignment via relaxation and therefor won't have object files
++# with the expected alignment.
++#not-target: m32c-* riscv*-* rx-*
+ 
+ # Test the alignment pseudo-op.
+ 
+diff --git a/gas/testsuite/gas/all/gas.exp b/gas/testsuite/gas/all/gas.exp
+index b5b0bebbf35a..38df380991b3 100644
+--- a/gas/testsuite/gas/all/gas.exp
++++ b/gas/testsuite/gas/all/gas.exp
+@@ -63,6 +63,7 @@ if {    ![istarget alpha*-*-*vms*]
+      && ![istarget microblaze-*-*]
+      && ![istarget mn10300-*-*]
+      && ![istarget msp430*-*-*]
++     && ![istarget riscv*-*-*]
+      && ![istarget rl78-*-*]
+      && ![istarget rx-*-*] } then {
+     gas_test_error "diff1.s" "" "difference of two undefined symbols"
+diff --git a/gas/testsuite/gas/all/relax.d b/gas/testsuite/gas/all/relax.d
+index 1e581c2695b0..27937fece266 100644
+--- a/gas/testsuite/gas/all/relax.d
++++ b/gas/testsuite/gas/all/relax.d
+@@ -1,5 +1,9 @@
+ #objdump : -s -j .data -j "\$DATA\$"
+ #name : relax .uleb128
++# RISC-V doesn't support .sleb operands that are the difference of two symbols
++# because symbol values are not known until after linker relaxation has been
++# performed.
++#not-target : riscv*-*-*
+ 
+ .*: .*
+ 
+diff --git a/gas/testsuite/gas/all/sleb128-2.d b/gas/testsuite/gas/all/sleb128-2.d
+index cce0b4c0334a..377aa1f21797 100644
+--- a/gas/testsuite/gas/all/sleb128-2.d
++++ b/gas/testsuite/gas/all/sleb128-2.d
+@@ -1,5 +1,9 @@
+ #objdump : -s -j .data -j "\$DATA\$"
+ #name : .sleb128 tests (2)
++# RISC-V doesn't support .sleb operands that are the difference of two symbols
++# because symbol values are not known until after linker relaxation has been
++# performed.
++#not-target : riscv*-*-*
+ 
+ .*: .*
+ 
+diff --git a/gas/testsuite/gas/all/sleb128-4.d b/gas/testsuite/gas/all/sleb128-4.d
+index 89b956530186..49eebbbb4d92 100644
+--- a/gas/testsuite/gas/all/sleb128-4.d
++++ b/gas/testsuite/gas/all/sleb128-4.d
+@@ -1,6 +1,10 @@
+ #objdump : -s -j .data -j "\$DATA\$"
+ #name : .sleb128 tests (4)
+ #skip: msp430*-*-*
++# RISC-V doesn't support .sleb operands that are the difference of two symbols
++# because symbol values are not known until after linker relaxation has been
++# performed.
++#not-target: riscv*-*-*
+ 
+ .*: .*
+ 
+diff --git a/gas/testsuite/gas/all/sleb128-5.d b/gas/testsuite/gas/all/sleb128-5.d
+index 0accfb5a6e88..b8298f52917e 100644
+--- a/gas/testsuite/gas/all/sleb128-5.d
++++ b/gas/testsuite/gas/all/sleb128-5.d
+@@ -1,5 +1,9 @@
+ #objdump : -s -j .data -j "\$DATA\$"
+ #name : .sleb128 tests (5)
++# RISC-V doesn't support .sleb operands that are the difference of two symbols
++# because symbol values are not known until after linker relaxation has been
++# performed.
++#not-target : riscv*-*-*
+ 
+ .*: .*
+ 
+diff --git a/gas/testsuite/gas/all/sleb128-7.d b/gas/testsuite/gas/all/sleb128-7.d
+index 6fcbdefe6e93..84aa5f16c325 100644
+--- a/gas/testsuite/gas/all/sleb128-7.d
++++ b/gas/testsuite/gas/all/sleb128-7.d
+@@ -1,5 +1,9 @@
+ #objdump : -s -j .data -j "\$DATA\$"
+ #name : .sleb128 tests (7)
++# RISC-V doesn't support .sleb operands that are the difference of two symbols
++# because symbol values are not known until after linker relaxation has been
++# performed.
++#not-target: riscv*-*-*
+ 
+ .*: .*
+ 
+diff --git a/gas/testsuite/gas/elf/section11.d b/gas/testsuite/gas/elf/section11.d
+index c1043db7a0b5..a92ad5acf7ef 100644
+--- a/gas/testsuite/gas/elf/section11.d
++++ b/gas/testsuite/gas/elf/section11.d
+@@ -3,6 +3,9 @@
+ #name: Disabling section padding
+ # The RX port uses non standard section names.
+ #skip: rx-*-*
++# RISC-V handles alignment via linker relaxation, so object files don't have
++# the expected alignment.
++#not-target: riscv*-*-*
+ 
+ #...
+   \[ .\] .text[ 	]+PROGBITS[ 	]+0+00 0+[0-9a-f]+ 0+0(1|4|5) 00  AX  0   0 16
+diff --git a/gas/testsuite/gas/lns/lns.exp b/gas/testsuite/gas/lns/lns.exp
+index 281b621f7243..02312c3e2c7e 100644
+--- a/gas/testsuite/gas/lns/lns.exp
++++ b/gas/testsuite/gas/lns/lns.exp
+@@ -38,6 +38,7 @@ if {
+ 	 || [istarget msp430-*-*]
+ 	 || [istarget nds32*-*-*]
+ 	 || [istarget pru-*-*]
++	 || [istarget riscv*-*-*]
+ 	 || [istarget rl78-*-*]
+ 	 || [istarget xtensa*-*-*] } {
+       run_dump_test "lns-common-1-alt"
+diff --git a/gas/testsuite/gas/riscv/c-addi16sp-fail.d b/gas/testsuite/gas/riscv/c-addi16sp-fail.d
+new file mode 100644
+index 000000000000..cc20923daf6d
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi16sp-fail.d
+@@ -0,0 +1,3 @@
++#as: -march=rv32ic
++#source: c-addi16sp-fail.s
++#error-output: c-addi16sp-fail.l
+diff --git a/gas/testsuite/gas/riscv/c-addi16sp-fail.l b/gas/testsuite/gas/riscv/c-addi16sp-fail.l
+new file mode 100644
+index 000000000000..15f91fd93d09
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi16sp-fail.l
+@@ -0,0 +1,2 @@
++.*: Assembler messages:
++.*: Error: illegal operands `c.addi16sp x1,0'
+diff --git a/gas/testsuite/gas/riscv/c-addi16sp-fail.s b/gas/testsuite/gas/riscv/c-addi16sp-fail.s
+new file mode 100644
+index 000000000000..c0d3918a7a8e
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi16sp-fail.s
+@@ -0,0 +1,2 @@
++target:
++	c.addi16sp x1, 0
+diff --git a/gas/testsuite/gas/riscv/c-addi4spn-fail.d b/gas/testsuite/gas/riscv/c-addi4spn-fail.d
+new file mode 100644
+index 000000000000..b3c0af44c9bf
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi4spn-fail.d
+@@ -0,0 +1,3 @@
++#as: -march=rv32ic
++#source: c-addi4spn-fail.s
++#error-output: c-addi4spn-fail.l
+diff --git a/gas/testsuite/gas/riscv/c-addi4spn-fail.l b/gas/testsuite/gas/riscv/c-addi4spn-fail.l
+new file mode 100644
+index 000000000000..2a8a5935f105
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi4spn-fail.l
+@@ -0,0 +1,2 @@
++.*: Assembler messages:
++.*: Error: illegal operands `c.addi4spn x1,0'
+diff --git a/gas/testsuite/gas/riscv/c-addi4spn-fail.s b/gas/testsuite/gas/riscv/c-addi4spn-fail.s
+new file mode 100644
+index 000000000000..6963bebf6304
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-addi4spn-fail.s
+@@ -0,0 +1,2 @@
++target:
++	c.addi4spn x1, 0
+diff --git a/gas/testsuite/gas/riscv/c-ld.d b/gas/testsuite/gas/riscv/c-ld.d
+new file mode 100644
+index 000000000000..29315e6b68b6
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-ld.d
+@@ -0,0 +1,17 @@
++#as: -march=rv64ic
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <target>:
++[ 	]+0:[ 	]+6108[ 	]+ld[ 	]+a0,0\(a0\)
++[ 	]+2:[ 	]+6108[ 	]+ld[ 	]+a0,0\(a0\)
++[ 	]+4:[ 	]+e108[ 	]+sd[ 	]+a0,0\(a0\)
++[ 	]+6:[ 	]+e108[ 	]+sd[ 	]+a0,0\(a0\)
++[ 	]+8:[ 	]+6502[ 	]+ld[ 	]+a0,0\(sp\)
++[ 	]+a:[ 	]+6502[ 	]+ld[ 	]+a0,0\(sp\)
++[ 	]+c:[ 	]+e02a[ 	]+sd[ 	]+a0,0\(sp\)
++[ 	]+e:[ 	]+e02a[ 	]+sd[ 	]+a0,0\(sp\)
+diff --git a/gas/testsuite/gas/riscv/c-ld.s b/gas/testsuite/gas/riscv/c-ld.s
+new file mode 100644
+index 000000000000..11b9e5574de8
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-ld.s
+@@ -0,0 +1,9 @@
++target:
++	ld a0, (a0)  # 'Cl'
++	ld a0, 0(a0) # 'Cl'
++	sd a0, (a0)  # 'Cl'
++	sd a0, 0(a0) # 'Cl'
++	ld a0, (sp)  # 'Cn'
++	ld a0, 0(sp) # 'Cn'
++	sd a0, (sp)  # 'CN'
++	sd a0, 0(sp) # 'CN'
+diff --git a/gas/testsuite/gas/riscv/c-lui-fail.d b/gas/testsuite/gas/riscv/c-lui-fail.d
+new file mode 100644
+index 000000000000..03e4596d2147
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-lui-fail.d
+@@ -0,0 +1,3 @@
++#as: -march=rv32ic
++#source: c-lui-fail.s
++#error-output: c-lui-fail.l
+diff --git a/gas/testsuite/gas/riscv/c-lui-fail.l b/gas/testsuite/gas/riscv/c-lui-fail.l
+new file mode 100644
+index 000000000000..5a4e9907dd69
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-lui-fail.l
+@@ -0,0 +1,2 @@
++.*: Assembler messages:
++.*: Error: illegal operands `c.lui x1,0'
+diff --git a/gas/testsuite/gas/riscv/c-lui-fail.s b/gas/testsuite/gas/riscv/c-lui-fail.s
+new file mode 100644
+index 000000000000..bb669bb2b7ec
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-lui-fail.s
+@@ -0,0 +1,2 @@
++target:
++	c.lui x1, 0
+diff --git a/gas/testsuite/gas/riscv/c-lw.d b/gas/testsuite/gas/riscv/c-lw.d
+new file mode 100644
+index 000000000000..f3ea3b2d2dba
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-lw.d
+@@ -0,0 +1,17 @@
++#as: -march=rv32ic
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <target>:
++[ 	]+0:[ 	]+4108[ 	]+lw[ 	]+a0,0\(a0\)
++[ 	]+2:[ 	]+4108[ 	]+lw[ 	]+a0,0\(a0\)
++[ 	]+4:[ 	]+c108[ 	]+sw[ 	]+a0,0\(a0\)
++[ 	]+6:[ 	]+c108[ 	]+sw[ 	]+a0,0\(a0\)
++[ 	]+8:[ 	]+4502[ 	]+lw[ 	]+a0,0\(sp\)
++[ 	]+a:[ 	]+4502[ 	]+lw[ 	]+a0,0\(sp\)
++[ 	]+c:[ 	]+c02a[ 	]+sw[ 	]+a0,0\(sp\)
++[ 	]+e:[ 	]+c02a[ 	]+sw[ 	]+a0,0\(sp\)
+diff --git a/gas/testsuite/gas/riscv/c-lw.s b/gas/testsuite/gas/riscv/c-lw.s
+new file mode 100644
+index 000000000000..3cf58f92f56f
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-lw.s
+@@ -0,0 +1,9 @@
++target:
++	lw a0, (a0)  # 'Ck'
++	lw a0, 0(a0) # 'Ck'
++	sw a0, (a0)  # 'Ck'
++	sw a0, 0(a0) # 'Ck'
++	lw a0, (sp)  # 'Cm'
++	lw a0, 0(sp) # 'Cm'
++	sw a0, (sp)  # 'CM'
++	sw a0, 0(sp) # 'CM'
+diff --git a/gas/testsuite/gas/riscv/eh-relocs.d b/gas/testsuite/gas/riscv/eh-relocs.d
+new file mode 100644
+index 000000000000..94fa1439de29
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/eh-relocs.d
+@@ -0,0 +1,12 @@
++#as:
++#objdump: --section=.eh_frame -r
++
++.*:[ 	]+file format .*
++
++RELOCATION RECORDS FOR .*
++.*
++0+1c R_RISCV_32_PCREL.*
++0+20 R_RISCV_ADD32.*
++0+20 R_RISCV_SUB32.*
++0+25 R_RISCV_SET6.*
++0+25 R_RISCV_SUB6.*
+diff --git a/gas/testsuite/gas/riscv/eh-relocs.s b/gas/testsuite/gas/riscv/eh-relocs.s
+new file mode 100644
+index 000000000000..4e96e7e6afbd
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/eh-relocs.s
+@@ -0,0 +1,11 @@
++	.text
++	.align	2
++	.globl	_func1
++	.type	_func1, @function
++_func1:
++	.cfi_startproc
++	lla	a1,_func2
++	add	sp,sp,-16
++	.cfi_def_cfa_offset 16
++	.cfi_endproc
++	.size	_func1, .-_func1
+diff --git a/gas/testsuite/gas/riscv/fmv.x.d b/gas/testsuite/gas/riscv/fmv.x.d
+new file mode 100644
+index 000000000000..7392e0c05528
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/fmv.x.d
+@@ -0,0 +1,13 @@
++#as:
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+e00b8653[ 	]+fmv.x.w[ 	]+a2,fs7
++[ 	]+4:[ 	]+e00b8653[ 	]+fmv.x.w[ 	]+a2,fs7
++[ 	]+8:[ 	]+f00800d3[ 	]+fmv.w.x[ 	]+ft1,a6
++[ 	]+c:[ 	]+f00800d3[ 	]+fmv.w.x[ 	]+ft1,a6
+diff --git a/gas/testsuite/gas/riscv/fmv.x.s b/gas/testsuite/gas/riscv/fmv.x.s
+new file mode 100644
+index 000000000000..a16feda28683
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/fmv.x.s
+@@ -0,0 +1,4 @@
++fmv.x.w a2, fs7
++fmv.x.s a2, fs7
++fmv.w.x ft1, a6
++fmv.s.x ft1, a6
+diff --git a/gas/testsuite/gas/riscv/riscv.exp b/gas/testsuite/gas/riscv/riscv.exp
+index 6922318ac0fc..ef0ec4ac53bb 100644
+--- a/gas/testsuite/gas/riscv/riscv.exp
++++ b/gas/testsuite/gas/riscv/riscv.exp
+@@ -20,4 +20,12 @@
+ 
+ if [istarget riscv*-*-*] {
+     run_dump_test "t_insns"
++    run_dump_test "c-lui-fail"
++    run_dump_test "c-addi4spn-fail"
++    run_dump_test "c-addi16sp-fail"
++    run_dump_test "satp"
++    run_dump_test "eh-relocs"
++    run_dump_test "fmv.x"
++    run_dump_test "c-lw"
++    run_dump_test "c-ld"
+ }
+diff --git a/gas/testsuite/gas/riscv/satp.d b/gas/testsuite/gas/riscv/satp.d
+new file mode 100644
+index 000000000000..823601c77343
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/satp.d
+@@ -0,0 +1,11 @@
++#as:
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <target>:
++[ 	]+0:[ 	]+180022f3[ 	]+csrr[ 	]+t0,satp
++[ 	]+4:[ 	]+180022f3[ 	]+csrr[ 	]+t0,satp
+diff --git a/gas/testsuite/gas/riscv/satp.s b/gas/testsuite/gas/riscv/satp.s
+new file mode 100644
+index 000000000000..f8aa76608f98
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/satp.s
+@@ -0,0 +1,3 @@
++target:
++	csrr t0, satp
++	csrr t0, sptbr
+diff --git a/gdb/config/riscv/linux.mh b/gdb/config/riscv/linux.mh
+new file mode 100644
+index 000000000000..4ec9f479a774
+diff --git a/gdb/features/riscv.c b/gdb/features/riscv.c
+new file mode 100644
+index 000000000000..842297618e9e
+diff --git a/gdb/features/riscv.xml b/gdb/features/riscv.xml
+new file mode 100644
+index 000000000000..94e630ce72de
+diff --git a/gdb/gdbserver/linux-riscv-low.c b/gdb/gdbserver/linux-riscv-low.c
+new file mode 100644
+index 000000000000..444082cce511
+diff --git a/gdb/regformats/riscv.dat b/gdb/regformats/riscv.dat
+new file mode 100644
+index 000000000000..01047fa80aed
+diff --git a/gdb/riscv-linux-nat.c b/gdb/riscv-linux-nat.c
+new file mode 100644
+index 000000000000..6accb7aad6e8
+diff --git a/gdb/riscv-linux-tdep.c b/gdb/riscv-linux-tdep.c
+new file mode 100644
+index 000000000000..145a3cf6a759
+diff --git a/gdb/riscv-linux-tdep.h b/gdb/riscv-linux-tdep.h
+new file mode 100644
+index 000000000000..d5758cab10d3
+diff --git a/gdb/riscv-tdep.c b/gdb/riscv-tdep.c
+new file mode 100644
+index 000000000000..3c2c9e8c6e63
+diff --git a/gdb/riscv-tdep.h b/gdb/riscv-tdep.h
+new file mode 100644
+index 000000000000..139a85002124
+diff --git a/include/gdb/sim-riscv.h b/include/gdb/sim-riscv.h
+new file mode 100644
+index 000000000000..932cf4922135
+--- /dev/null
++++ b/include/gdb/sim-riscv.h
+@@ -0,0 +1,98 @@
++/* This file defines the interface between the RISC-V simulator and GDB.
++
++   Copyright (C) 2005-2015 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++/* Order has to match gdb riscv-tdep list.  */
++enum sim_riscv_regnum {
++  SIM_RISCV_ZERO_REGNUM = 0,
++  SIM_RISCV_RA_REGNUM,
++  SIM_RISCV_SP_REGNUM,
++  SIM_RISCV_GP_REGNUM,
++  SIM_RISCV_TP_REGNUM,
++  SIM_RISCV_T0_REGNUM,
++  SIM_RISCV_T1_REGNUM,
++  SIM_RISCV_T2_REGNUM,
++  SIM_RISCV_S0_REGNUM,
++#define SIM_RISCV_FP_REGNUM SIM_RISCV_S0_REGNUM
++  SIM_RISCV_S1_REGNUM,
++  SIM_RISCV_A0_REGNUM,
++  SIM_RISCV_A1_REGNUM,
++  SIM_RISCV_A2_REGNUM,
++  SIM_RISCV_A3_REGNUM,
++  SIM_RISCV_A4_REGNUM,
++  SIM_RISCV_A5_REGNUM,
++  SIM_RISCV_A6_REGNUM,
++  SIM_RISCV_A7_REGNUM,
++  SIM_RISCV_S2_REGNUM,
++  SIM_RISCV_S3_REGNUM,
++  SIM_RISCV_S4_REGNUM,
++  SIM_RISCV_S5_REGNUM,
++  SIM_RISCV_S6_REGNUM,
++  SIM_RISCV_S7_REGNUM,
++  SIM_RISCV_S8_REGNUM,
++  SIM_RISCV_S9_REGNUM,
++  SIM_RISCV_S10_REGNUM,
++  SIM_RISCV_S11_REGNUM,
++  SIM_RISCV_T3_REGNUM,
++  SIM_RISCV_T4_REGNUM,
++  SIM_RISCV_T5_REGNUM,
++  SIM_RISCV_T6_REGNUM,
++  SIM_RISCV_PC_REGNUM,
++  SIM_RISCV_FT0_REGNUM,
++#define SIM_RISCV_FIRST_FP_REGNUM SIM_RISCV_FT0_REGNUM
++  SIM_RISCV_FT1_REGNUM,
++  SIM_RISCV_FT2_REGNUM,
++  SIM_RISCV_FT3_REGNUM,
++  SIM_RISCV_FT4_REGNUM,
++  SIM_RISCV_FT5_REGNUM,
++  SIM_RISCV_FT6_REGNUM,
++  SIM_RISCV_FT7_REGNUM,
++  SIM_RISCV_FS0_REGNUM,
++  SIM_RISCV_FS1_REGNUM,
++  SIM_RISCV_FA0_REGNUM,
++  SIM_RISCV_FA1_REGNUM,
++  SIM_RISCV_FA2_REGNUM,
++  SIM_RISCV_FA3_REGNUM,
++  SIM_RISCV_FA4_REGNUM,
++  SIM_RISCV_FA5_REGNUM,
++  SIM_RISCV_FA6_REGNUM,
++  SIM_RISCV_FA7_REGNUM,
++  SIM_RISCV_FS2_REGNUM,
++  SIM_RISCV_FS3_REGNUM,
++  SIM_RISCV_FS4_REGNUM,
++  SIM_RISCV_FS5_REGNUM,
++  SIM_RISCV_FS6_REGNUM,
++  SIM_RISCV_FS7_REGNUM,
++  SIM_RISCV_FS8_REGNUM,
++  SIM_RISCV_FS9_REGNUM,
++  SIM_RISCV_FS10_REGNUM,
++  SIM_RISCV_FS11_REGNUM,
++  SIM_RISCV_FT8_REGNUM,
++  SIM_RISCV_FT9_REGNUM,
++  SIM_RISCV_FT10_REGNUM,
++  SIM_RISCV_FT11_REGNUM,
++#define SIM_RISCV_LAST_FP_REGNUM SIM_RISCV_FT11_REGNUM
++
++#define SIM_RISCV_FIRST_CSR_REGNUM SIM_RISCV_LAST_FP_REGNUM + 1
++#define DECLARE_CSR(name, num) SIM_RISCV_ ## num ## _REGNUM,
++#include "opcode/riscv-opc.h"
++#undef DECLARE_CSR
++#define SIM_RISCV_LAST_CSR_REGNUM SIM_RISCV_LAST_REGNUM - 1
++
++  SIM_RISCV_LAST_REGNUM
++};
+diff --git a/include/opcode/riscv-opc.h b/include/opcode/riscv-opc.h
+index b203a6ab1943..ee37d3ff505d 100644
+--- a/include/opcode/riscv-opc.h
++++ b/include/opcode/riscv-opc.h
+@@ -611,7 +611,7 @@
+ #define CSR_SCAUSE 0x142
+ #define CSR_SBADADDR 0x143
+ #define CSR_SIP 0x144
+-#define CSR_SPTBR 0x180
++#define CSR_SATP 0x180
+ #define CSR_MSTATUS 0x300
+ #define CSR_MISA 0x301
+ #define CSR_MEDELEG 0x302
+@@ -1123,7 +1123,7 @@ DECLARE_CSR(sepc, CSR_SEPC)
+ DECLARE_CSR(scause, CSR_SCAUSE)
+ DECLARE_CSR(sbadaddr, CSR_SBADADDR)
+ DECLARE_CSR(sip, CSR_SIP)
+-DECLARE_CSR(sptbr, CSR_SPTBR)
++DECLARE_CSR(satp, CSR_SATP)
+ DECLARE_CSR(mstatus, CSR_MSTATUS)
+ DECLARE_CSR(misa, CSR_MISA)
+ DECLARE_CSR(medeleg, CSR_MEDELEG)
+@@ -1293,6 +1293,9 @@ DECLARE_CSR(mhpmcounter29h, CSR_MHPMCOUNTER29H)
+ DECLARE_CSR(mhpmcounter30h, CSR_MHPMCOUNTER30H)
+ DECLARE_CSR(mhpmcounter31h, CSR_MHPMCOUNTER31H)
+ #endif
++#ifdef DECLARE_CSR_ALIAS
++DECLARE_CSR_ALIAS(sptbr, CSR_SATP)
++#endif
+ #ifdef DECLARE_CAUSE
+ DECLARE_CAUSE("misaligned fetch", CAUSE_MISALIGNED_FETCH)
+ DECLARE_CAUSE("fault fetch", CAUSE_FAULT_FETCH)
+diff --git a/include/opcode/riscv.h b/include/opcode/riscv.h
+index 719565d1ba53..015e78131495 100644
+--- a/include/opcode/riscv.h
++++ b/include/opcode/riscv.h
+@@ -141,7 +141,7 @@ static const char * const riscv_pred_succ[16] =
+ #define VALID_UTYPE_IMM(x) (EXTRACT_UTYPE_IMM(ENCODE_UTYPE_IMM(x)) == (x))
+ #define VALID_UJTYPE_IMM(x) (EXTRACT_UJTYPE_IMM(ENCODE_UJTYPE_IMM(x)) == (x))
+ #define VALID_RVC_IMM(x) (EXTRACT_RVC_IMM(ENCODE_RVC_IMM(x)) == (x))
+-#define VALID_RVC_LUI_IMM(x) (EXTRACT_RVC_LUI_IMM(ENCODE_RVC_LUI_IMM(x)) == (x))
++#define VALID_RVC_LUI_IMM(x) (ENCODE_RVC_LUI_IMM(x) != 0 && EXTRACT_RVC_LUI_IMM(ENCODE_RVC_LUI_IMM(x)) == (x))
+ #define VALID_RVC_SIMM3(x) (EXTRACT_RVC_SIMM3(ENCODE_RVC_SIMM3(x)) == (x))
+ #define VALID_RVC_ADDI4SPN_IMM(x) (EXTRACT_RVC_ADDI4SPN_IMM(ENCODE_RVC_ADDI4SPN_IMM(x)) == (x))
+ #define VALID_RVC_ADDI16SP_IMM(x) (EXTRACT_RVC_ADDI16SP_IMM(ENCODE_RVC_ADDI16SP_IMM(x)) == (x))
+diff --git a/ld/emultempl/riscvelf.em b/ld/emultempl/riscvelf.em
+index 99af4d864261..7b30f528628a 100644
+--- a/ld/emultempl/riscvelf.em
++++ b/ld/emultempl/riscvelf.em
+@@ -39,7 +39,7 @@ riscv_elf_before_allocation (void)
+   else
+     ENABLE_RELAXATION;
+ 
+-  link_info.relax_pass = 2;
++  link_info.relax_pass = 3;
+ }
+ 
+ static void
+diff --git a/ld/testsuite/ld-elf/compress1-alt.s b/ld/testsuite/ld-elf/compress1-alt.s
+new file mode 100644
+index 000000000000..0f33236321c4
+--- /dev/null
++++ b/ld/testsuite/ld-elf/compress1-alt.s
+@@ -0,0 +1,12 @@
++	.section	.debug_aranges,"",%progbits
++	.4byte	0x1c
++	.2byte	0x2
++	.4byte	0x0
++	.byte	0x4
++	.byte	0x0
++	.2byte	0x0
++	.2byte	0x0
++	.4byte	0x0
++	.4byte	0xfffffffc
++	.4byte	0x0
++	.4byte	0x0
+diff --git a/ld/testsuite/ld-elf/compressed1d-alt.d b/ld/testsuite/ld-elf/compressed1d-alt.d
+new file mode 100644
+index 000000000000..9721f663adb5
+--- /dev/null
++++ b/ld/testsuite/ld-elf/compressed1d-alt.d
+@@ -0,0 +1,10 @@
++#source: compress1-alt.s
++#as: --compress-debug-sections=none
++#ld: -r --compress-debug-sections=zlib-gnu
++#readelf: -SW
++#target: riscv*-*-*
++
++#failif
++#...
++  \[[ 0-9]+\] \.zdebug_aranges[ 	]+(PROGBITS|MIPS_DWARF)[ 	0-9a-z]+ .*
++#...
+diff --git a/ld/testsuite/ld-elf/compressed1d.d b/ld/testsuite/ld-elf/compressed1d.d
+index 3ca40f9ddbf6..5c5592df50c6 100644
+--- a/ld/testsuite/ld-elf/compressed1d.d
++++ b/ld/testsuite/ld-elf/compressed1d.d
+@@ -2,8 +2,10 @@
+ #as: --compress-debug-sections=none
+ #ld: -r --compress-debug-sections=zlib-gnu
+ #readelf: -SW
+-#notarget: d30v-*-* dlx-*-* fr30-*-* frv-*-* ft32-*-* i370-*-* i860-*-* iq2000-*-* mn10200-*-* moxie-*-* msp430-*-* mt-*-* or1k-*-* pj-*-*
++#notarget: d30v-*-* dlx-*-* fr30-*-* frv-*-* ft32-*-* i370-*-* i860-*-* iq2000-*-* mn10200-*-* moxie-*-* msp430-*-* mt-*-* or1k-*-* pj-*-* riscv*-*-*
+ # Not all ELF targets use the elf.em emulation...
++# RISC-V has linker relaxations that delete code, so text label subtractions
++# do not get resolved at assembly time, which results in a compressed section.
+ 
+ #failif
+ #...
+diff --git a/ld/testsuite/ld-riscv-elf/c-lui.d b/ld/testsuite/ld-riscv-elf/c-lui.d
+new file mode 100644
+index 000000000000..7a9671163a9d
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/c-lui.d
+@@ -0,0 +1,17 @@
++#name: lui to c.lui relaxation
++#source: c-lui.s
++#as: -march=rv32ic
++#ld: -shared -melf32lriscv
++#objdump: -d -M no-aliases,numeric
++
++.*:     file format .*
++
++
++Disassembly of section \.text:
++
++.* <.text>:
++.*:	6085                	c.lui	x1,0x1
++.*:	000000b7          	lui	x1,0x0
++.*:	00001037          	lui	x0,0x1
++.*:	00001137          	lui	x2,0x1
++#pass
+diff --git a/ld/testsuite/ld-riscv-elf/c-lui.s b/ld/testsuite/ld-riscv-elf/c-lui.s
+new file mode 100644
+index 000000000000..4a23fdb95c56
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/c-lui.s
+@@ -0,0 +1,5 @@
++.text	
++	lui x1, 1
++	lui x1, 0
++	lui x0, 1
++	lui x2, 1
+diff --git a/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp b/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp
+new file mode 100644
+index 000000000000..c219b181590e
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp
+@@ -0,0 +1,24 @@
++# Expect script for RISC-V ELF linker tests
++#   Copyright (C) 2017 Free Software Foundation, Inc.
++#
++# This file is part of the GNU Binutils.
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
++# MA 02110-1301, USA.
++#
++
++if [istarget "riscv-*-*"] {
++    run_dump_test "c-lui"
++}
+diff --git a/opcodes/riscv-opc.c b/opcodes/riscv-opc.c
+index 9914c4474429..84cdea8fca8f 100644
+--- a/opcodes/riscv-opc.c
++++ b/opcodes/riscv-opc.c
+@@ -114,9 +114,25 @@ match_c_add (const struct riscv_opcode *op, insn_t insn)
+ }
+ 
+ static int
++match_c_addi16sp (const struct riscv_opcode *op, insn_t insn)
++{
++  return (match_opcode (op, insn)
++	  && (((insn & MASK_RD) >> OP_SH_RD) == 2)
++	  && EXTRACT_RVC_ADDI16SP_IMM (insn) != 0);
++}
++
++static int
+ match_c_lui (const struct riscv_opcode *op, insn_t insn)
+ {
+-  return match_rd_nonzero (op, insn) && (((insn & MASK_RD) >> OP_SH_RD) != 2);
++  return (match_rd_nonzero (op, insn)
++	  && (((insn & MASK_RD) >> OP_SH_RD) != 2)
++	  && EXTRACT_RVC_LUI_IMM (insn) != 0);
++}
++
++static int
++match_c_addi4spn (const struct riscv_opcode *op, insn_t insn)
++{
++  return match_opcode (op, insn) && EXTRACT_RVC_ADDI4SPN_IMM (insn) != 0;
+ }
+ 
+ const struct riscv_opcode riscv_opcodes[] =
+@@ -188,15 +204,15 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"bnez",      "C",   "Cs,Cp",  MATCH_C_BNEZ, MASK_C_BNEZ, match_opcode, INSN_ALIAS },
+ {"bnez",      "I",   "s,p",  MATCH_BNE, MASK_BNE | MASK_RS2, match_opcode, INSN_ALIAS },
+ {"bne",       "I",   "s,t,p",  MATCH_BNE, MASK_BNE, match_opcode, 0 },
+-{"addi",      "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_opcode, INSN_ALIAS },
++{"addi",      "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_c_addi4spn, INSN_ALIAS },
+ {"addi",      "C",   "d,CU,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_rd_nonzero, INSN_ALIAS },
+-{"addi",      "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_opcode, INSN_ALIAS },
++{"addi",      "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_c_addi16sp, INSN_ALIAS },
+ {"addi",      "I",   "d,s,j",  MATCH_ADDI, MASK_ADDI, match_opcode, 0 },
+ {"add",       "C",   "d,CU,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add, INSN_ALIAS },
+ {"add",       "C",   "d,CV,CU",  MATCH_C_ADD, MASK_C_ADD, match_c_add, INSN_ALIAS },
+ {"add",       "C",   "d,CU,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_rd_nonzero, INSN_ALIAS },
+-{"add",       "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_opcode, INSN_ALIAS },
+-{"add",       "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_opcode, INSN_ALIAS },
++{"add",       "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_c_addi4spn, INSN_ALIAS },
++{"add",       "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_c_addi16sp, INSN_ALIAS },
+ {"add",       "I",   "d,s,t",  MATCH_ADD, MASK_ADD, match_opcode, 0 },
+ {"add",       "I",   "d,s,t,0",MATCH_ADD, MASK_ADD, match_opcode, 0 },
+ {"add",       "I",   "d,s,j",  MATCH_ADDI, MASK_ADDI, match_opcode, INSN_ALIAS },
+@@ -435,8 +451,13 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"fsw",       "32C", "CD,Ck(Cs)",  MATCH_C_FSW, MASK_C_FSW, match_opcode, INSN_ALIAS },
+ {"fsw",       "F",   "T,q(s)",  MATCH_FSW, MASK_FSW, match_opcode, 0 },
+ {"fsw",       "F",   "T,A,s",  0, (int) M_FSW, match_never, INSN_MACRO },
++
++{"fmv.x.w",   "F",   "d,S",  MATCH_FMV_X_S, MASK_FMV_X_S, match_opcode, 0 },
++{"fmv.w.x",   "F",   "D,s",  MATCH_FMV_S_X, MASK_FMV_S_X, match_opcode, 0 },
++
+ {"fmv.x.s",   "F",   "d,S",  MATCH_FMV_X_S, MASK_FMV_X_S, match_opcode, 0 },
+ {"fmv.s.x",   "F",   "D,s",  MATCH_FMV_S_X, MASK_FMV_S_X, match_opcode, 0 },
++
+ {"fmv.s",     "F",   "D,U",  MATCH_FSGNJ_S, MASK_FSGNJ_S, match_rs1_eq_rs2, INSN_ALIAS },
+ {"fneg.s",    "F",   "D,U",  MATCH_FSGNJN_S, MASK_FSGNJN_S, match_rs1_eq_rs2, INSN_ALIAS },
+ {"fabs.s",    "F",   "D,U",  MATCH_FSGNJX_S, MASK_FSGNJX_S, match_rs1_eq_rs2, INSN_ALIAS },
+@@ -619,12 +640,12 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"c.lw",      "C",   "Ct,Ck(Cs)",  MATCH_C_LW, MASK_C_LW, match_opcode, 0 },
+ {"c.swsp",    "C",   "CV,CM(Cc)",  MATCH_C_SWSP, MASK_C_SWSP, match_opcode, 0 },
+ {"c.sw",      "C",   "Ct,Ck(Cs)",  MATCH_C_SW, MASK_C_SW, match_opcode, 0 },
+-{"c.nop",     "C",   "",  MATCH_C_ADDI, 0xffff, match_opcode, 0 },
++{"c.nop",     "C",   "",  MATCH_C_ADDI, 0xffff, match_opcode, INSN_ALIAS },
+ {"c.mv",      "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add, 0 },
+ {"c.lui",     "C",   "d,Cu",  MATCH_C_LUI, MASK_C_LUI, match_c_lui, 0 },
+ {"c.li",      "C",   "d,Co",  MATCH_C_LI, MASK_C_LI, match_rd_nonzero, 0 },
+-{"c.addi4spn","C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_opcode, 0 },
+-{"c.addi16sp","C",   "Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_opcode, 0 },
++{"c.addi4spn","C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_c_addi4spn, 0 },
++{"c.addi16sp","C",   "Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_c_addi16sp, 0 },
+ {"c.addi",    "C",   "d,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_opcode, 0 },
+ {"c.add",     "C",   "d,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add, 0 },
+ {"c.sub",     "C",   "Cs,Ct",  MATCH_C_SUB, MASK_C_SUB, match_opcode, 0 },
+diff --git a/sim/riscv/ChangeLog b/sim/riscv/ChangeLog
+new file mode 100644
+index 000000000000..a960da8422ec
+diff --git a/sim/riscv/Makefile.in b/sim/riscv/Makefile.in
+new file mode 100644
+index 000000000000..2902cf68c7f7
+diff --git a/sim/riscv/aclocal.m4 b/sim/riscv/aclocal.m4
+new file mode 100644
+index 000000000000..c81c155ac9d8
+diff --git a/sim/riscv/config.in b/sim/riscv/config.in
+new file mode 100644
+index 000000000000..aa3e45ca4ac2
+diff --git a/sim/riscv/configure b/sim/riscv/configure
+new file mode 100755
+index 000000000000..8f921cd0c669
+diff --git a/sim/riscv/configure.ac b/sim/riscv/configure.ac
+new file mode 100644
+index 000000000000..0209a2b4d75c
+diff --git a/sim/riscv/interp.c b/sim/riscv/interp.c
+new file mode 100644
+index 000000000000..f28c841cfc14
+diff --git a/sim/riscv/machs.c b/sim/riscv/machs.c
+new file mode 100644
+index 000000000000..78ed28d1f054
+diff --git a/sim/riscv/machs.h b/sim/riscv/machs.h
+new file mode 100644
+index 000000000000..6c8cd43e93c4
+diff --git a/sim/riscv/model_list.def b/sim/riscv/model_list.def
+new file mode 100644
+index 000000000000..5efd85ab280f
+diff --git a/sim/riscv/sim-main.c b/sim/riscv/sim-main.c
+new file mode 100644
+index 000000000000..5200c8644501
+diff --git a/sim/riscv/sim-main.h b/sim/riscv/sim-main.h
+new file mode 100644
+index 000000000000..4405ced3db7f
+diff --git a/sim/testsuite/sim/riscv/ChangeLog b/sim/testsuite/sim/riscv/ChangeLog
+new file mode 100644
+index 000000000000..72dd0c36da4c
+diff --git a/sim/testsuite/sim/riscv/allinsn.exp b/sim/testsuite/sim/riscv/allinsn.exp
+new file mode 100644
+index 000000000000..4ed7cff5d209
+diff --git a/sim/testsuite/sim/riscv/pass.s b/sim/testsuite/sim/riscv/pass.s
+new file mode 100644
+index 000000000000..bd428ca16772
+diff --git a/sim/testsuite/sim/riscv/testutils.inc b/sim/testsuite/sim/riscv/testutils.inc
+new file mode 100644
+index 000000000000..bb92ac0f4d64
