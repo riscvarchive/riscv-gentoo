@@ -489,9 +489,19 @@ glibc_headers_configure() {
 	[[ -d ${S}/ports ]] && addons+=",ports"
 	myconf+=( --enable-add-ons="${addons#,}" )
 
+	local glibc_cflags
+	case "${CTARGET}" in
+	riscv*)
+		glibc_cflags="-O1 -pipe -D__riscv_xlen=64 -D__riscv_atomic=1 -D__riscv_float_abi_double=1 -DRISCV_ABI_XLEN=64 -DRISCV_ABI_FLEN=64"
+		;;
+	*)
+		glibc_cflags="-O1 -pipe";
+		;;
+	esac
+
 	# Nothing is compiled here which would affect the headers for the target.
 	# So forcing CC/CFLAGS is sane.
-	set -- "${S}"/configure "${myconf[@]}"
+	CFLAGS="${glibc_cflags}" CPPFLAGS="${glibc_cflags}" "${S}"/configure "${myconf[@]}"
 	echo "$@"
 	CC="$(tc-getBUILD_CC)" \
 	CFLAGS="-O1 -pipe" \
@@ -659,10 +669,8 @@ glibc_do_src_install() {
 		"${S}"/localedata/SUPPORTED > "${ED}"/usr/share/i18n/SUPPORTED \
 		|| die "generating /usr/share/i18n/SUPPORTED failed"
 	cd "${WORKDIR}"/extra/locale
-	dosbin locale-gen
 	doman *.[0-8]
 	insinto /etc
-	doins locale.gen
 
 	# Make sure all the ABI's can find the locales and so we only
 	# have to generate one set
@@ -679,7 +687,6 @@ glibc_do_src_install() {
 	# Install misc network config files
 	insinto /etc
 	doins nscd/nscd.conf posix/gai.conf nss/nsswitch.conf
-	doins "${WORKDIR}"/extra/etc/*.conf
 
 	if use nscd ; then
 		doinitd "$(prefixify_ro "${WORKDIR}"/extra/etc/nscd)"
@@ -710,9 +717,19 @@ glibc_do_src_install() {
 }
 
 glibc_headers_install() {
+	local glibc_cflags
+	case "${CTARGET}" in
+	riscv*)
+		glibc_cflags="-O1 -pipe -D__riscv_xlen=64 -D__riscv_atomic=1 -D__riscv_float_abi_double=1 -DRISCV_ABI_XLEN=64 -DRISCV_ABI_FLEN=64"
+		;;
+	*)
+		glibc_cflags="-O1 -pipe";
+		;;
+	esac
+
 	local builddir=$(builddir "headers")
 	cd "${builddir}"
-	emake install_root="${D}$(alt_prefix)" install-headers
+	emake CFLAGS="${glibc_cflags}" CPPFLAGS="${glibc_cflags}" install_root="${D}$(alt_prefix)" install-headers
 
 	insinto $(alt_headers)/gnu
 	doins "${S}"/include/gnu/stubs.h
