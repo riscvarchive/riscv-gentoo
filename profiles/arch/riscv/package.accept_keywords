@@ -80,7 +80,6 @@ sys-apps/which amd64
 sys-devel/binutils-config amd64
 sys-devel/gcc-config amd64
 sys-devel/gnuconfig amd64
-sys-devel/make amd64
 sys-devel/patch amd64
 sys-libs/cracklib amd64
 sys-libs/db amd64

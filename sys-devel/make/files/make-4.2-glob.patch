@@ -1,0 +1,23 @@
+diff -Nur make-4.2.1.orig/glob/glob.c make-4.2.1/glob/glob.c
+--- make-4.2.1.orig/glob/glob.c	2017-12-28 17:46:55.826116052 -0800
++++ make-4.2.1/glob/glob.c	2017-12-28 17:47:38.592331038 -0800
+@@ -229,6 +229,10 @@
+ 
+ # define __alloca	alloca
+ 
++#else
++
++# define __alloca	alloca
++
+ #endif
+ 
+ #ifndef __GNU_LIBRARY__
+@@ -239,6 +243,8 @@
+ # ifndef S_ISDIR
+ #  define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+ # endif
++#else
++# define __stat stat
+ #endif
+ 
+ #ifdef _LIBC
