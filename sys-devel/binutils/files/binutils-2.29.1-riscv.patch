@@ -790,6 +790,35 @@ index 8a1b152849ec..2dc22c7c55e4 100644
    RL78             DJ Delorie <dj@redhat.com>
    RX               DJ Delorie <dj@redhat.com>
    RX               Nick Clifton <nickc@redhat.com>
+diff --git a/binutils/objcopy.c b/binutils/objcopy.c
+index 23a949d1ad69..288c565ac36d 100644
+--- a/binutils/objcopy.c
++++ b/binutils/objcopy.c
+@@ -3898,6 +3898,15 @@ copy_section (bfd *ibfd, sec_ptr isection, void *obfdarg)
+ 	  char *end = (char *) memhunk + size;
+ 	  int i;
+ 
++	  /* If the section address is not exactly divisible by the interleave,
++	     then we must bias the from address.  If the copy_byte is less than
++	     the bias, then we must skip forward one interleave, and increment
++	     the final lma.  */
++	  int extra = isection->lma % interleave;
++	  from -= extra;
++	  if (copy_byte < extra)
++	    from += interleave;
++
+ 	  for (; from < end; from += interleave)
+ 	    for (i = 0; i < copy_width; i++)
+ 	      {
+@@ -3908,6 +3917,8 @@ copy_section (bfd *ibfd, sec_ptr isection, void *obfdarg)
+ 
+ 	  size = (size + interleave - 1 - copy_byte) / interleave * copy_width;
+ 	  osection->lma /= interleave;
++	  if (copy_byte < extra)
++	    osection->lma++;
+ 	}
+ 
+       if (!bfd_set_section_contents (obfd, osection, memhunk, 0, size))
 diff --git a/binutils/testsuite/binutils-all/objdump.exp b/binutils/testsuite/binutils-all/objdump.exp
 index 3dee405340a2..ddffdd1cb897 100644
 --- a/binutils/testsuite/binutils-all/objdump.exp
@@ -804,7 +833,7 @@ index 3dee405340a2..ddffdd1cb897 100644
  	fail "objdump -W for debug_ranges"
      } else {
 diff --git a/gas/config/tc-riscv.c b/gas/config/tc-riscv.c
-index 55c41c5db3c9..8bb400e1001b 100644
+index 55c41c5db3c9..a4e01b6c798a 100644
 --- a/gas/config/tc-riscv.c
 +++ b/gas/config/tc-riscv.c
 @@ -147,8 +147,8 @@ riscv_add_subset (const char *subset)
@@ -955,7 +984,17 @@ index 55c41c5db3c9..8bb400e1001b 100644
  		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
  		      || imm_expr->X_op != O_constant
  		      || !VALID_RVC_LDSP_IMM (imm_expr->X_add_number))
-@@ -1368,6 +1407,8 @@ rvc_imm_done:
+@@ -1345,6 +1384,9 @@ rvc_imm_done:
+ 		case 'o':
+ 		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
+ 		      || imm_expr->X_op != O_constant
++		      /* C.addiw, c.li, and c.andi allow zero immediate.
++			 C.addi allows zero immediate as hint.  Otherwise this
++			 is same as 'j'.  */
+ 		      || !VALID_RVC_IMM (imm_expr->X_add_number))
+ 		    break;
+ 		  ip->insn_opcode |= ENCODE_RVC_IMM (imm_expr->X_add_number);
+@@ -1368,6 +1410,8 @@ rvc_imm_done:
  		    ENCODE_RVC_ADDI16SP_IMM (imm_expr->X_add_number);
  		  goto rvc_imm_done;
  		case 'M':
@@ -964,7 +1003,7 @@ index 55c41c5db3c9..8bb400e1001b 100644
  		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
  		      || imm_expr->X_op != O_constant
  		      || !VALID_RVC_SWSP_IMM (imm_expr->X_add_number))
-@@ -1376,6 +1417,8 @@ rvc_imm_done:
+@@ -1376,6 +1420,8 @@ rvc_imm_done:
  		    ENCODE_RVC_SWSP_IMM (imm_expr->X_add_number);
  		  goto rvc_imm_done;
  		case 'N':
@@ -973,7 +1012,7 @@ index 55c41c5db3c9..8bb400e1001b 100644
  		  if (my_getSmallExpression (imm_expr, imm_reloc, s, p)
  		      || imm_expr->X_op != O_constant
  		      || !VALID_RVC_SDSP_IMM (imm_expr->X_add_number))
-@@ -1606,12 +1649,7 @@ rvc_lui:
+@@ -1606,12 +1652,7 @@ rvc_lui:
  	      p = percent_op_rtype;
  	      *imm_reloc = BFD_RELOC_UNUSED;
  load_store:
@@ -987,7 +1026,7 @@ index 55c41c5db3c9..8bb400e1001b 100644
  		continue;
  alu_op:
  	      /* If this value won't fit into a 16 bit offset, then go
-@@ -1889,7 +1927,6 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+@@ -1889,7 +1930,6 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
        break;
  
      case BFD_RELOC_RISCV_GOT_HI20:
@@ -995,7 +1034,7 @@ index 55c41c5db3c9..8bb400e1001b 100644
      case BFD_RELOC_RISCV_ADD8:
      case BFD_RELOC_RISCV_ADD16:
      case BFD_RELOC_RISCV_ADD32:
-@@ -2082,8 +2119,12 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+@@ -2082,8 +2122,12 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
        relaxable = TRUE;
        break;
  
@@ -1008,18 +1047,25 @@ index 55c41c5db3c9..8bb400e1001b 100644
      case BFD_RELOC_RISCV_ALIGN:
        break;
  
-@@ -2278,30 +2319,21 @@ bfd_boolean
+@@ -2278,30 +2322,29 @@ bfd_boolean
  riscv_frag_align_code (int n)
  {
    bfd_vma bytes = (bfd_vma) 1 << n;
 -  bfd_vma min_text_alignment_order = riscv_opts.rvc ? 1 : 2;
 -  bfd_vma min_text_alignment = (bfd_vma) 1 << min_text_alignment_order;
--
++  bfd_vma insn_alignment = riscv_opts.rvc ? 2 : 4;
++  bfd_vma worst_case_bytes = bytes - insn_alignment;
++  char *nops;
++  expressionS ex;
++
++  /* If we are moving to a smaller alignment than the instruction size, then no
++     alignment is required. */
++  if (bytes <= insn_alignment)
++    return TRUE;
+ 
 -  /* First, get back to minimal alignment.  */
 -  frag_align_code (min_text_alignment_order, 0);
-+  bfd_vma worst_case_bytes = bytes - (riscv_opts.rvc ? 2 : 4);
-+  char *nops = frag_more (worst_case_bytes);
-+  expressionS ex;
++  nops = frag_more (worst_case_bytes);
  
    /* When not relaxing, riscv_handle_align handles code alignment.  */
    if (!riscv_opts.relax)
@@ -1047,6 +1093,223 @@ index 55c41c5db3c9..8bb400e1001b 100644
  
    return TRUE;
  }
+diff --git a/gas/doc/as.texinfo b/gas/doc/as.texinfo
+index e0637c71491f..179f766fd955 100644
+--- a/gas/doc/as.texinfo
++++ b/gas/doc/as.texinfo
+@@ -502,6 +502,13 @@ gcc(1), ld(1), and the Info entries for @file{binutils} and @file{ld}.
+    [@b{-mnolink-relax}]
+    [@b{-mno-warn-regname-label}]
+ @end ifset
++@ifset RISCV
++
++@emph{Target RISC-V options:}
++   [@b{-fpic}|@b{-fPIC}|@b{-fno-pic}]
++   [@b{-march}=@var{ISA}]
++   [@b{-mabi}=@var{ABI}]
++@end ifset
+ @ifset RL78
+ 
+ @emph{Target RL78 options:}
+@@ -520,12 +527,6 @@ gcc(1), ld(1), and the Info entries for @file{binutils} and @file{ld}.
+    [@b{-mint-register=@var{number}}]
+    [@b{-mgcc-abi}|@b{-mrx-abi}]
+ @end ifset
+-@ifset RISCV
+-
+-@emph{Target RISC-V options:}
+-   [@b{-march}=@var{ISA}]
+-   [@b{-mabi}=@var{ABI}]
+-@end ifset
+ @ifset S390
+ 
+ @emph{Target s390 options:}
+@@ -1702,14 +1703,14 @@ PowerPC processor.
+ @ifset RISCV
+ 
+ @ifclear man
+-@xref{RISC-V-Opts}, for the options available when @value{AS} is configured
++@xref{RISC-V-Options}, for the options available when @value{AS} is configured
+ for a RISC-V processor.
+ @end ifclear
+ 
+ @ifset man
+ @c man begin OPTIONS
+ The following options are available when @value{AS} is configured for a
+-RISC-V  processor.
++RISC-V processor.
+ @c man end
+ @c man begin INCLUDE
+ @include c-riscv.texi
+@@ -7694,12 +7695,12 @@ subject, see the hardware manufacturer's manual.
+ @ifset PRU
+ * PRU-Dependent::               PRU Dependent Features
+ @end ifset
+-@ifset RL78
+-* RL78-Dependent::              RL78 Dependent Features
+-@end ifset
+ @ifset RISCV
+ * RISC-V-Dependent::            RISC-V Dependent Features
+ @end ifset
++@ifset RL78
++* RL78-Dependent::              RL78 Dependent Features
++@end ifset
+ @ifset RX
+ * RX-Dependent::                RX Dependent Features
+ @end ifset
+@@ -7930,14 +7931,14 @@ family.
+ @include c-pru.texi
+ @end ifset
+ 
+-@ifset RL78
+-@include c-rl78.texi
+-@end ifset
+-
+ @ifset RISCV
+ @include c-riscv.texi
+ @end ifset
+ 
++@ifset RL78
++@include c-rl78.texi
++@end ifset
++
+ @ifset RX
+ @include c-rx.texi
+ @end ifset
+diff --git a/gas/doc/c-riscv.texi b/gas/doc/c-riscv.texi
+index 01b99312d3c2..90e6be7c4cf5 100644
+--- a/gas/doc/c-riscv.texi
++++ b/gas/doc/c-riscv.texi
+@@ -15,19 +15,21 @@
+ 
+ @cindex RISC-V support
+ @menu
+-* RISC-V-Opts::      RISC-V Options
++* RISC-V-Options::        RISC-V Options
++* RISC-V-Directives::     RISC-V Directives
+ @end menu
+ 
+-@node RISC-V-Opts
+-@section Options
++@node RISC-V-Options
++@section RISC-V Options
+ 
+-The following table lists all available RISC-V specific options
++The following table lists all available RISC-V specific options.
+ 
+ @c man begin OPTIONS
+ @table @gcctabopt
+ 
+ @cindex @samp{-fpic} option, RISC-V
+ @item -fpic
++@itemx -fPIC
+ Generate position-independent code
+ 
+ @cindex @samp{-fno-pic} option, RISC-V
+@@ -47,3 +49,103 @@ the soft-float calling convention.
+ 
+ @end table
+ @c man end
++
++@node RISC-V-Directives
++@section RISC-V Directives
++@cindex machine directives, RISC-V
++@cindex RISC-V machine directives
++
++The following table lists all available RISC-V specific directives.
++
++@table @code
++
++@cindex @code{align} directive
++@item .align @var{size-log-2}
++Align to the given boundary, with the size given as log2 the number of bytes to
++align to.
++
++@cindex Data directives
++@item .half @var{value}
++@itemx .word @var{value}
++@itemx .dword @var{value}
++Emits a half-word, word, or double-word value at the current position.
++
++@cindex DTP-relative data directives
++@item .dtprelword @var{value}
++@itemx .dtpreldword @var{value}
++Emits a DTP-relative word (or double-word) at the current position.  This is
++meant to be used by the compiler in shared libraries for DWARF debug info for
++thread local variables.
++
++@cindex BSS directive
++@item .bss
++Sets the current section to the BSS section.
++
++@cindex LEB128 directives
++@item .uleb128 @var{value}
++@itemx .sleb128 @var{value}
++Emits a signed or unsigned LEB128 value at the current position.  This only
++accepts constant expressions, because symbol addresses can change with
++relaxation, and we don't support relocations to modify LEB128 values at link
++time.
++
++@cindex Option directive
++@cindex @code{option} directive
++@item .option @var{argument}
++Modifies RISC-V specific assembler options inline with the assembly code.
++This is used when particular instruction sequences must be assembled with a
++specific set of options.  For example, since we relax addressing sequences to
++shorter GP-relative sequences when possible the initial load of GP must not be
++relaxed and should be emitted as something like
++
++@smallexample
++	.option push
++	.option norelax
++	la gp, __global_pointer$
++	.option pop
++@end smallexample
++
++in order to produce after linker relaxation the expected
++
++@smallexample
++	auipc gp, %pcrel_hi(__global_pointer$)
++	addi gp, gp, %pcrel_lo(__global_pointer$)
++@end smallexample
++
++instead of just
++
++@smallexample
++	addi gp, gp, 0
++@end smallexample
++
++It's not expected that options are changed in this manner during regular use,
++but there are a handful of esoteric cases like the one above where users need
++to disable particular features of the assembler for particular code sequences.
++The complete list of option arguments is shown below:
++
++@table @code
++@item push
++@itemx pop
++Pushes or pops the current option stack.  These should be used whenever
++changing an option in line with assembly code in order to ensure the user's
++command-line options are respected for the bulk of the file being assembled.
++
++@item rvc
++@itemx norvc
++Enables or disables the generation of compressed instructions.  Instructions
++are opportunistically compressed by the RISC-V assembler when possible, but
++sometimes this behavior is not desirable.
++
++@item pic
++@itemx nopic
++Enables or disables position-independent code generation.  Unless you really
++know what you're doing, this should only be at the top of a file.
++
++@item relax
++@itemx norelax
++Enables or disables relaxation.  The RISC-V assembler and linker
++opportunistically relax some code sequences, but sometimes this behavior is not
++desirable.
++@end table
++
++@end table
 diff --git a/gas/testsuite/gas/all/align.d b/gas/testsuite/gas/all/align.d
 index dec2168aa6f0..eb08d8ddcda7 100644
 --- a/gas/testsuite/gas/all/align.d
@@ -1171,6 +1434,22 @@ index 281b621f7243..02312c3e2c7e 100644
  	 || [istarget rl78-*-*]
  	 || [istarget xtensa*-*-*] } {
        run_dump_test "lns-common-1-alt"
+diff --git a/gas/testsuite/gas/riscv/align-1.l b/gas/testsuite/gas/riscv/align-1.l
+new file mode 100644
+index 000000000000..8ea739b7641d
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/align-1.l
+@@ -0,0 +1 @@
++# No warning or error expected.
+diff --git a/gas/testsuite/gas/riscv/align-1.s b/gas/testsuite/gas/riscv/align-1.s
+new file mode 100644
+index 000000000000..ee6a94dea78c
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/align-1.s
+@@ -0,0 +1,3 @@
++	.option norvc
++	.align 2
++	.align 1
 diff --git a/gas/testsuite/gas/riscv/c-addi16sp-fail.d b/gas/testsuite/gas/riscv/c-addi16sp-fail.d
 new file mode 100644
 index 000000000000..cc20923daf6d
@@ -1322,6 +1601,170 @@ index 000000000000..3cf58f92f56f
 +	lw a0, 0(sp) # 'Cm'
 +	sw a0, (sp)  # 'CM'
 +	sw a0, 0(sp) # 'CM'
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-imm.d b/gas/testsuite/gas/riscv/c-nonzero-imm.d
+new file mode 100644
+index 000000000000..2c62290904a8
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-imm.d
+@@ -0,0 +1,3 @@
++#as:
++#objdump: -dr
++#error-output: c-nonzero-imm.l
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-imm.l b/gas/testsuite/gas/riscv/c-nonzero-imm.l
+new file mode 100644
+index 000000000000..093271958714
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-imm.l
+@@ -0,0 +1,2 @@
++.*: Assembler messages:
++.*: Error: illegal operands `c.nop 0'
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-imm.s b/gas/testsuite/gas/riscv/c-nonzero-imm.s
+new file mode 100644
+index 000000000000..1b876ab56bad
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-imm.s
+@@ -0,0 +1,3 @@
++	.option rvc
++	c.nop 0
++	c.nop 1
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-reg.d b/gas/testsuite/gas/riscv/c-nonzero-reg.d
+new file mode 100644
+index 000000000000..39a65b53ebcf
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-reg.d
+@@ -0,0 +1,3 @@
++#as: -march=rv64gc
++#objdump: -dr
++#error-output: c-nonzero-reg.l
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-reg.l b/gas/testsuite/gas/riscv/c-nonzero-reg.l
+new file mode 100644
+index 000000000000..1d8fb6b8bae3
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-reg.l
+@@ -0,0 +1,4 @@
++.*: Assembler messages:
++.*: Error: illegal operands `c.addiw x0,10'
++.*: Error: illegal operands `c.jr x0'
++
+diff --git a/gas/testsuite/gas/riscv/c-nonzero-reg.s b/gas/testsuite/gas/riscv/c-nonzero-reg.s
+new file mode 100644
+index 000000000000..23d51c31b72a
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-nonzero-reg.s
+@@ -0,0 +1,3 @@
++	.option rvc
++	c.addiw x0, 10
++	c.jr x0
+diff --git a/gas/testsuite/gas/riscv/c-zero-imm-64.d b/gas/testsuite/gas/riscv/c-zero-imm-64.d
+new file mode 100644
+index 000000000000..9d1e490f8594
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-imm-64.d
+@@ -0,0 +1,11 @@
++#as: -march=rv64gc
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+2801[ 	]+sext.w[ 	]+a6,a6
++[ 	]+2:[ 	]+2881[ 	]+sext.w[ 	]+a7,a7
+diff --git a/gas/testsuite/gas/riscv/c-zero-imm-64.s b/gas/testsuite/gas/riscv/c-zero-imm-64.s
+new file mode 100644
+index 000000000000..ffe743e92d89
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-imm-64.s
+@@ -0,0 +1,4 @@
++	.option rvc
++	# These are valid instructions.
++	addiw a6,a6,0
++	c.addiw a7,0
+diff --git a/gas/testsuite/gas/riscv/c-zero-imm.d b/gas/testsuite/gas/riscv/c-zero-imm.d
+new file mode 100644
+index 000000000000..ac47e8061d26
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-imm.d
+@@ -0,0 +1,16 @@
++#as:
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+4501[ 	]+li[ 	]+a0,0
++[ 	]+2:[ 	]+4581[ 	]+li[ 	]+a1,0
++[ 	]+4:[ 	]+8a01[ 	]+andi[ 	]+a2,a2,0
++[ 	]+6:[ 	]+8a81[ 	]+andi[ 	]+a3,a3,0
++[ 	]+8:[ 	]+00070713[ 	]+mv[ 	]+a4,a4
++[ 	]+c:[ 	]+0781[ 	]+addi[ 	]+a5,a5,0
++#...
+diff --git a/gas/testsuite/gas/riscv/c-zero-imm.s b/gas/testsuite/gas/riscv/c-zero-imm.s
+new file mode 100644
+index 000000000000..650313d7cb09
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-imm.s
+@@ -0,0 +1,10 @@
++	.option rvc
++	# These are valid instructions.
++	li a0,0
++	c.li a1,0
++	andi a2,a2,0
++	c.andi a3,0
++	# Don't let this compress to a hint.
++	addi a4,a4,0
++	# These are hints.
++	c.addi a5,0
+diff --git a/gas/testsuite/gas/riscv/c-zero-reg.d b/gas/testsuite/gas/riscv/c-zero-reg.d
+new file mode 100644
+index 000000000000..2daf8963eb33
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-reg.d
+@@ -0,0 +1,20 @@
++#as:
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+4005[ 	]+c.li[ 	]+zero,1
++[ 	]+2:[ 	]+6009[ 	]+c.lui[ 	]+zero,0x2
++[ 	]+4:[ 	]+000e[ 	]+c.slli[ 	]+zero,0x3
++[ 	]+6:[ 	]+8006[ 	]+c.mv[ 	]+zero,ra
++[ 	]+8:[ 	]+9006[ 	]+c.add[ 	]+zero,ra
++[ 	]+a:[ 	]+00500013[ 	]+li[ 	]+zero,5
++[ 	]+e:[ 	]+00006037[ 	]+lui[ 	]+zero,0x6
++[ 	]+12:[ 	]+00709013[ 	]+slli[ 	]+zero,ra,0x7
++[ 	]+16:[ 	]+00008013[ 	]+mv[ 	]+zero,ra
++[ 	]+1a:[ 	]+00100033[ 	]+add[ 	]+zero,zero,ra
++#...
+diff --git a/gas/testsuite/gas/riscv/c-zero-reg.s b/gas/testsuite/gas/riscv/c-zero-reg.s
+new file mode 100644
+index 000000000000..414c8a490e6b
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/c-zero-reg.s
+@@ -0,0 +1,13 @@
++	.option rvc
++	# These are hints.
++	c.li x0, 1
++	c.lui x0, 2
++	c.slli x0, 3
++	c.mv x0, x1
++	c.add x0, x1
++	# Don't let these compress to hints.
++	li x0, 5
++	lui x0, 6
++	slli x0, x1, 7
++	mv x0, x1
++	add x0, x0, x1
 diff --git a/gas/testsuite/gas/riscv/eh-relocs.d b/gas/testsuite/gas/riscv/eh-relocs.d
 new file mode 100644
 index 000000000000..94fa1439de29
@@ -1386,11 +1829,570 @@ index 000000000000..a16feda28683
 +fmv.x.s a2, fs7
 +fmv.w.x ft1, a6
 +fmv.s.x ft1, a6
+diff --git a/gas/testsuite/gas/riscv/fsxxi.d b/gas/testsuite/gas/riscv/fsxxi.d
+new file mode 100644
+index 000000000000..2e03a20f8219
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/fsxxi.d
+@@ -0,0 +1,13 @@
++#as:
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+002fd573[ 	]+fsrmi[ 	]+a0,31
++[ 	]+4:[ 	]+002f5073[ 	]+fsrmi[ 	]+zero,30
++[ 	]+8:[ 	]+001ed773[ 	]+fsflagsi[ 	]+a4,29
++[ 	]+c:[ 	]+001e5073[ 	]+fsflagsi[ 	]+zero,28
+diff --git a/gas/testsuite/gas/riscv/fsxxi.s b/gas/testsuite/gas/riscv/fsxxi.s
+new file mode 100644
+index 000000000000..e42d7863d95b
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/fsxxi.s
+@@ -0,0 +1,4 @@
++	fsrmi x10, 0x1f
++	fsrmi 0x1e
++	fsflagsi x14, 0x1d
++	fsflagsi 0x1c
+diff --git a/gas/testsuite/gas/riscv/priv-reg.d b/gas/testsuite/gas/riscv/priv-reg.d
+new file mode 100644
+index 000000000000..2a650df248d7
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/priv-reg.d
+@@ -0,0 +1,251 @@
++#as: -march=rv32i
++#objdump: -dr
++
++.*:[ 	]+file format .*
++
++
++Disassembly of section .text:
++
++0+000 <.text>:
++[ 	]+0:[ 	]+00002573[ 	]+csrr[ 	]+a0,ustatus
++[ 	]+4:[ 	]+00402573[ 	]+csrr[ 	]+a0,uie
++[ 	]+8:[ 	]+00502573[ 	]+csrr[ 	]+a0,utvec
++[ 	]+c:[ 	]+04002573[ 	]+csrr[ 	]+a0,uscratch
++[ 	]+10:[ 	]+04102573[ 	]+csrr[ 	]+a0,uepc
++[ 	]+14:[ 	]+04202573[ 	]+csrr[ 	]+a0,ucause
++[ 	]+18:[ 	]+04302573[ 	]+csrr[ 	]+a0,utval
++[ 	]+1c:[ 	]+04402573[ 	]+csrr[ 	]+a0,uip
++[ 	]+20:[ 	]+00102573[ 	]+frflags[ 	]+a0
++[ 	]+24:[ 	]+00202573[ 	]+frrm[ 	]+a0
++[ 	]+28:[ 	]+00302573[ 	]+frsr[ 	]+a0
++[ 	]+2c:[ 	]+c0002573[ 	]+rdcycle[ 	]+a0
++[ 	]+30:[ 	]+c0102573[ 	]+rdtime[ 	]+a0
++[ 	]+34:[ 	]+c0202573[ 	]+rdinstret[ 	]+a0
++[ 	]+38:[ 	]+c0302573[ 	]+csrr[ 	]+a0,hpmcounter3
++[ 	]+3c:[ 	]+c0402573[ 	]+csrr[ 	]+a0,hpmcounter4
++[ 	]+40:[ 	]+c0502573[ 	]+csrr[ 	]+a0,hpmcounter5
++[ 	]+44:[ 	]+c0602573[ 	]+csrr[ 	]+a0,hpmcounter6
++[ 	]+48:[ 	]+c0702573[ 	]+csrr[ 	]+a0,hpmcounter7
++[ 	]+4c:[ 	]+c0802573[ 	]+csrr[ 	]+a0,hpmcounter8
++[ 	]+50:[ 	]+c0902573[ 	]+csrr[ 	]+a0,hpmcounter9
++[ 	]+54:[ 	]+c0a02573[ 	]+csrr[ 	]+a0,hpmcounter10
++[ 	]+58:[ 	]+c0b02573[ 	]+csrr[ 	]+a0,hpmcounter11
++[ 	]+5c:[ 	]+c0c02573[ 	]+csrr[ 	]+a0,hpmcounter12
++[ 	]+60:[ 	]+c0d02573[ 	]+csrr[ 	]+a0,hpmcounter13
++[ 	]+64:[ 	]+c0e02573[ 	]+csrr[ 	]+a0,hpmcounter14
++[ 	]+68:[ 	]+c0f02573[ 	]+csrr[ 	]+a0,hpmcounter15
++[ 	]+6c:[ 	]+c1002573[ 	]+csrr[ 	]+a0,hpmcounter16
++[ 	]+70:[ 	]+c1102573[ 	]+csrr[ 	]+a0,hpmcounter17
++[ 	]+74:[ 	]+c1202573[ 	]+csrr[ 	]+a0,hpmcounter18
++[ 	]+78:[ 	]+c1302573[ 	]+csrr[ 	]+a0,hpmcounter19
++[ 	]+7c:[ 	]+c1402573[ 	]+csrr[ 	]+a0,hpmcounter20
++[ 	]+80:[ 	]+c1502573[ 	]+csrr[ 	]+a0,hpmcounter21
++[ 	]+84:[ 	]+c1602573[ 	]+csrr[ 	]+a0,hpmcounter22
++[ 	]+88:[ 	]+c1702573[ 	]+csrr[ 	]+a0,hpmcounter23
++[ 	]+8c:[ 	]+c1802573[ 	]+csrr[ 	]+a0,hpmcounter24
++[ 	]+90:[ 	]+c1902573[ 	]+csrr[ 	]+a0,hpmcounter25
++[ 	]+94:[ 	]+c1a02573[ 	]+csrr[ 	]+a0,hpmcounter26
++[ 	]+98:[ 	]+c1b02573[ 	]+csrr[ 	]+a0,hpmcounter27
++[ 	]+9c:[ 	]+c1c02573[ 	]+csrr[ 	]+a0,hpmcounter28
++[ 	]+a0:[ 	]+c1d02573[ 	]+csrr[ 	]+a0,hpmcounter29
++[ 	]+a4:[ 	]+c1e02573[ 	]+csrr[ 	]+a0,hpmcounter30
++[ 	]+a8:[ 	]+c1f02573[ 	]+csrr[ 	]+a0,hpmcounter31
++[ 	]+ac:[ 	]+c8002573[ 	]+rdcycleh[ 	]+a0
++[ 	]+b0:[ 	]+c8102573[ 	]+rdtimeh[ 	]+a0
++[ 	]+b4:[ 	]+c8202573[ 	]+rdinstreth[ 	]+a0
++[ 	]+b8:[ 	]+c8302573[ 	]+csrr[ 	]+a0,hpmcounter3h
++[ 	]+bc:[ 	]+c8402573[ 	]+csrr[ 	]+a0,hpmcounter4h
++[ 	]+c0:[ 	]+c8502573[ 	]+csrr[ 	]+a0,hpmcounter5h
++[ 	]+c4:[ 	]+c8602573[ 	]+csrr[ 	]+a0,hpmcounter6h
++[ 	]+c8:[ 	]+c8702573[ 	]+csrr[ 	]+a0,hpmcounter7h
++[ 	]+cc:[ 	]+c8802573[ 	]+csrr[ 	]+a0,hpmcounter8h
++[ 	]+d0:[ 	]+c8902573[ 	]+csrr[ 	]+a0,hpmcounter9h
++[ 	]+d4:[ 	]+c8a02573[ 	]+csrr[ 	]+a0,hpmcounter10h
++[ 	]+d8:[ 	]+c8b02573[ 	]+csrr[ 	]+a0,hpmcounter11h
++[ 	]+dc:[ 	]+c8c02573[ 	]+csrr[ 	]+a0,hpmcounter12h
++[ 	]+e0:[ 	]+c8d02573[ 	]+csrr[ 	]+a0,hpmcounter13h
++[ 	]+e4:[ 	]+c8e02573[ 	]+csrr[ 	]+a0,hpmcounter14h
++[ 	]+e8:[ 	]+c8f02573[ 	]+csrr[ 	]+a0,hpmcounter15h
++[ 	]+ec:[ 	]+c9002573[ 	]+csrr[ 	]+a0,hpmcounter16h
++[ 	]+f0:[ 	]+c9102573[ 	]+csrr[ 	]+a0,hpmcounter17h
++[ 	]+f4:[ 	]+c9202573[ 	]+csrr[ 	]+a0,hpmcounter18h
++[ 	]+f8:[ 	]+c9302573[ 	]+csrr[ 	]+a0,hpmcounter19h
++[ 	]+fc:[ 	]+c9402573[ 	]+csrr[ 	]+a0,hpmcounter20h
++[ 	]+100:[ 	]+c9502573[ 	]+csrr[ 	]+a0,hpmcounter21h
++[ 	]+104:[ 	]+c9602573[ 	]+csrr[ 	]+a0,hpmcounter22h
++[ 	]+108:[ 	]+c9702573[ 	]+csrr[ 	]+a0,hpmcounter23h
++[ 	]+10c:[ 	]+c9802573[ 	]+csrr[ 	]+a0,hpmcounter24h
++[ 	]+110:[ 	]+c9902573[ 	]+csrr[ 	]+a0,hpmcounter25h
++[ 	]+114:[ 	]+c9a02573[ 	]+csrr[ 	]+a0,hpmcounter26h
++[ 	]+118:[ 	]+c9b02573[ 	]+csrr[ 	]+a0,hpmcounter27h
++[ 	]+11c:[ 	]+c9c02573[ 	]+csrr[ 	]+a0,hpmcounter28h
++[ 	]+120:[ 	]+c9d02573[ 	]+csrr[ 	]+a0,hpmcounter29h
++[ 	]+124:[ 	]+c9e02573[ 	]+csrr[ 	]+a0,hpmcounter30h
++[ 	]+128:[ 	]+c9f02573[ 	]+csrr[ 	]+a0,hpmcounter31h
++[ 	]+12c:[ 	]+10002573[ 	]+csrr[ 	]+a0,sstatus
++[ 	]+130:[ 	]+10202573[ 	]+csrr[ 	]+a0,sedeleg
++[ 	]+134:[ 	]+10302573[ 	]+csrr[ 	]+a0,sideleg
++[ 	]+138:[ 	]+10402573[ 	]+csrr[ 	]+a0,sie
++[ 	]+13c:[ 	]+10502573[ 	]+csrr[ 	]+a0,stvec
++[ 	]+140:[ 	]+14002573[ 	]+csrr[ 	]+a0,sscratch
++[ 	]+144:[ 	]+14102573[ 	]+csrr[ 	]+a0,sepc
++[ 	]+148:[ 	]+14202573[ 	]+csrr[ 	]+a0,scause
++[ 	]+14c:[ 	]+14302573[ 	]+csrr[ 	]+a0,sbadaddr
++[ 	]+150:[ 	]+14402573[ 	]+csrr[ 	]+a0,sip
++[ 	]+154:[ 	]+18002573[ 	]+csrr[ 	]+a0,satp
++[ 	]+158:[ 	]+20002573[ 	]+csrr[ 	]+a0,hstatus
++[ 	]+15c:[ 	]+20202573[ 	]+csrr[ 	]+a0,hedeleg
++[ 	]+160:[ 	]+20302573[ 	]+csrr[ 	]+a0,hideleg
++[ 	]+164:[ 	]+20402573[ 	]+csrr[ 	]+a0,hie
++[ 	]+168:[ 	]+20502573[ 	]+csrr[ 	]+a0,htvec
++[ 	]+16c:[ 	]+24002573[ 	]+csrr[ 	]+a0,hscratch
++[ 	]+170:[ 	]+24102573[ 	]+csrr[ 	]+a0,hepc
++[ 	]+174:[ 	]+24202573[ 	]+csrr[ 	]+a0,hcause
++[ 	]+178:[ 	]+24302573[ 	]+csrr[ 	]+a0,hbadaddr
++[ 	]+17c:[ 	]+24402573[ 	]+csrr[ 	]+a0,hip
++[ 	]+180:[ 	]+f1102573[ 	]+csrr[ 	]+a0,mvendorid
++[ 	]+184:[ 	]+f1202573[ 	]+csrr[ 	]+a0,marchid
++[ 	]+188:[ 	]+f1302573[ 	]+csrr[ 	]+a0,mimpid
++[ 	]+18c:[ 	]+f1402573[ 	]+csrr[ 	]+a0,mhartid
++[ 	]+190:[ 	]+30002573[ 	]+csrr[ 	]+a0,mstatus
++[ 	]+194:[ 	]+30102573[ 	]+csrr[ 	]+a0,misa
++[ 	]+198:[ 	]+30202573[ 	]+csrr[ 	]+a0,medeleg
++[ 	]+19c:[ 	]+30302573[ 	]+csrr[ 	]+a0,mideleg
++[ 	]+1a0:[ 	]+30402573[ 	]+csrr[ 	]+a0,mie
++[ 	]+1a4:[ 	]+30502573[ 	]+csrr[ 	]+a0,mtvec
++[ 	]+1a8:[ 	]+34002573[ 	]+csrr[ 	]+a0,mscratch
++[ 	]+1ac:[ 	]+34102573[ 	]+csrr[ 	]+a0,mepc
++[ 	]+1b0:[ 	]+34202573[ 	]+csrr[ 	]+a0,mcause
++[ 	]+1b4:[ 	]+34302573[ 	]+csrr[ 	]+a0,mbadaddr
++[ 	]+1b8:[ 	]+34402573[ 	]+csrr[ 	]+a0,mip
++[ 	]+1bc:[ 	]+38002573[ 	]+csrr[ 	]+a0,mbase
++[ 	]+1c0:[ 	]+38102573[ 	]+csrr[ 	]+a0,mbound
++[ 	]+1c4:[ 	]+38202573[ 	]+csrr[ 	]+a0,mibase
++[ 	]+1c8:[ 	]+38302573[ 	]+csrr[ 	]+a0,mibound
++[ 	]+1cc:[ 	]+38402573[ 	]+csrr[ 	]+a0,mdbase
++[ 	]+1d0:[ 	]+38502573[ 	]+csrr[ 	]+a0,mdbound
++[ 	]+1d4:[ 	]+b0002573[ 	]+csrr[ 	]+a0,mcycle
++[ 	]+1d8:[ 	]+b0202573[ 	]+csrr[ 	]+a0,minstret
++[ 	]+1dc:[ 	]+b0302573[ 	]+csrr[ 	]+a0,mhpmcounter3
++[ 	]+1e0:[ 	]+b0402573[ 	]+csrr[ 	]+a0,mhpmcounter4
++[ 	]+1e4:[ 	]+b0502573[ 	]+csrr[ 	]+a0,mhpmcounter5
++[ 	]+1e8:[ 	]+b0602573[ 	]+csrr[ 	]+a0,mhpmcounter6
++[ 	]+1ec:[ 	]+b0702573[ 	]+csrr[ 	]+a0,mhpmcounter7
++[ 	]+1f0:[ 	]+b0802573[ 	]+csrr[ 	]+a0,mhpmcounter8
++[ 	]+1f4:[ 	]+b0902573[ 	]+csrr[ 	]+a0,mhpmcounter9
++[ 	]+1f8:[ 	]+b0a02573[ 	]+csrr[ 	]+a0,mhpmcounter10
++[ 	]+1fc:[ 	]+b0b02573[ 	]+csrr[ 	]+a0,mhpmcounter11
++[ 	]+200:[ 	]+b0c02573[ 	]+csrr[ 	]+a0,mhpmcounter12
++[ 	]+204:[ 	]+b0d02573[ 	]+csrr[ 	]+a0,mhpmcounter13
++[ 	]+208:[ 	]+b0e02573[ 	]+csrr[ 	]+a0,mhpmcounter14
++[ 	]+20c:[ 	]+b0f02573[ 	]+csrr[ 	]+a0,mhpmcounter15
++[ 	]+210:[ 	]+b1002573[ 	]+csrr[ 	]+a0,mhpmcounter16
++[ 	]+214:[ 	]+b1102573[ 	]+csrr[ 	]+a0,mhpmcounter17
++[ 	]+218:[ 	]+b1202573[ 	]+csrr[ 	]+a0,mhpmcounter18
++[ 	]+21c:[ 	]+b1302573[ 	]+csrr[ 	]+a0,mhpmcounter19
++[ 	]+220:[ 	]+b1402573[ 	]+csrr[ 	]+a0,mhpmcounter20
++[ 	]+224:[ 	]+b1502573[ 	]+csrr[ 	]+a0,mhpmcounter21
++[ 	]+228:[ 	]+b1602573[ 	]+csrr[ 	]+a0,mhpmcounter22
++[ 	]+22c:[ 	]+b1702573[ 	]+csrr[ 	]+a0,mhpmcounter23
++[ 	]+230:[ 	]+b1802573[ 	]+csrr[ 	]+a0,mhpmcounter24
++[ 	]+234:[ 	]+b1902573[ 	]+csrr[ 	]+a0,mhpmcounter25
++[ 	]+238:[ 	]+b1a02573[ 	]+csrr[ 	]+a0,mhpmcounter26
++[ 	]+23c:[ 	]+b1b02573[ 	]+csrr[ 	]+a0,mhpmcounter27
++[ 	]+240:[ 	]+b1c02573[ 	]+csrr[ 	]+a0,mhpmcounter28
++[ 	]+244:[ 	]+b1d02573[ 	]+csrr[ 	]+a0,mhpmcounter29
++[ 	]+248:[ 	]+b1e02573[ 	]+csrr[ 	]+a0,mhpmcounter30
++[ 	]+24c:[ 	]+b1f02573[ 	]+csrr[ 	]+a0,mhpmcounter31
++[ 	]+250:[ 	]+b8002573[ 	]+csrr[ 	]+a0,mcycleh
++[ 	]+254:[ 	]+b8202573[ 	]+csrr[ 	]+a0,minstreth
++[ 	]+258:[ 	]+b8302573[ 	]+csrr[ 	]+a0,mhpmcounter3h
++[ 	]+25c:[ 	]+b8402573[ 	]+csrr[ 	]+a0,mhpmcounter4h
++[ 	]+260:[ 	]+b8502573[ 	]+csrr[ 	]+a0,mhpmcounter5h
++[ 	]+264:[ 	]+b8602573[ 	]+csrr[ 	]+a0,mhpmcounter6h
++[ 	]+268:[ 	]+b8702573[ 	]+csrr[ 	]+a0,mhpmcounter7h
++[ 	]+26c:[ 	]+b8802573[ 	]+csrr[ 	]+a0,mhpmcounter8h
++[ 	]+270:[ 	]+b8902573[ 	]+csrr[ 	]+a0,mhpmcounter9h
++[ 	]+274:[ 	]+b8a02573[ 	]+csrr[ 	]+a0,mhpmcounter10h
++[ 	]+278:[ 	]+b8b02573[ 	]+csrr[ 	]+a0,mhpmcounter11h
++[ 	]+27c:[ 	]+b8c02573[ 	]+csrr[ 	]+a0,mhpmcounter12h
++[ 	]+280:[ 	]+b8d02573[ 	]+csrr[ 	]+a0,mhpmcounter13h
++[ 	]+284:[ 	]+b8e02573[ 	]+csrr[ 	]+a0,mhpmcounter14h
++[ 	]+288:[ 	]+b8f02573[ 	]+csrr[ 	]+a0,mhpmcounter15h
++[ 	]+28c:[ 	]+b9002573[ 	]+csrr[ 	]+a0,mhpmcounter16h
++[ 	]+290:[ 	]+b9102573[ 	]+csrr[ 	]+a0,mhpmcounter17h
++[ 	]+294:[ 	]+b9202573[ 	]+csrr[ 	]+a0,mhpmcounter18h
++[ 	]+298:[ 	]+b9302573[ 	]+csrr[ 	]+a0,mhpmcounter19h
++[ 	]+29c:[ 	]+b9402573[ 	]+csrr[ 	]+a0,mhpmcounter20h
++[ 	]+2a0:[ 	]+b9502573[ 	]+csrr[ 	]+a0,mhpmcounter21h
++[ 	]+2a4:[ 	]+b9602573[ 	]+csrr[ 	]+a0,mhpmcounter22h
++[ 	]+2a8:[ 	]+b9702573[ 	]+csrr[ 	]+a0,mhpmcounter23h
++[ 	]+2ac:[ 	]+b9802573[ 	]+csrr[ 	]+a0,mhpmcounter24h
++[ 	]+2b0:[ 	]+b9902573[ 	]+csrr[ 	]+a0,mhpmcounter25h
++[ 	]+2b4:[ 	]+b9a02573[ 	]+csrr[ 	]+a0,mhpmcounter26h
++[ 	]+2b8:[ 	]+b9b02573[ 	]+csrr[ 	]+a0,mhpmcounter27h
++[ 	]+2bc:[ 	]+b9c02573[ 	]+csrr[ 	]+a0,mhpmcounter28h
++[ 	]+2c0:[ 	]+b9d02573[ 	]+csrr[ 	]+a0,mhpmcounter29h
++[ 	]+2c4:[ 	]+b9e02573[ 	]+csrr[ 	]+a0,mhpmcounter30h
++[ 	]+2c8:[ 	]+b9f02573[ 	]+csrr[ 	]+a0,mhpmcounter31h
++[ 	]+2cc:[ 	]+32002573[ 	]+csrr[ 	]+a0,mucounteren
++[ 	]+2d0:[ 	]+32102573[ 	]+csrr[ 	]+a0,mscounteren
++[ 	]+2d4:[ 	]+32202573[ 	]+csrr[ 	]+a0,mhcounteren
++[ 	]+2d8:[ 	]+32302573[ 	]+csrr[ 	]+a0,mhpmevent3
++[ 	]+2dc:[ 	]+32402573[ 	]+csrr[ 	]+a0,mhpmevent4
++[ 	]+2e0:[ 	]+32502573[ 	]+csrr[ 	]+a0,mhpmevent5
++[ 	]+2e4:[ 	]+32602573[ 	]+csrr[ 	]+a0,mhpmevent6
++[ 	]+2e8:[ 	]+32702573[ 	]+csrr[ 	]+a0,mhpmevent7
++[ 	]+2ec:[ 	]+32802573[ 	]+csrr[ 	]+a0,mhpmevent8
++[ 	]+2f0:[ 	]+32902573[ 	]+csrr[ 	]+a0,mhpmevent9
++[ 	]+2f4:[ 	]+32a02573[ 	]+csrr[ 	]+a0,mhpmevent10
++[ 	]+2f8:[ 	]+32b02573[ 	]+csrr[ 	]+a0,mhpmevent11
++[ 	]+2fc:[ 	]+32c02573[ 	]+csrr[ 	]+a0,mhpmevent12
++[ 	]+300:[ 	]+32d02573[ 	]+csrr[ 	]+a0,mhpmevent13
++[ 	]+304:[ 	]+32e02573[ 	]+csrr[ 	]+a0,mhpmevent14
++[ 	]+308:[ 	]+32f02573[ 	]+csrr[ 	]+a0,mhpmevent15
++[ 	]+30c:[ 	]+33002573[ 	]+csrr[ 	]+a0,mhpmevent16
++[ 	]+310:[ 	]+33102573[ 	]+csrr[ 	]+a0,mhpmevent17
++[ 	]+314:[ 	]+33202573[ 	]+csrr[ 	]+a0,mhpmevent18
++[ 	]+318:[ 	]+33302573[ 	]+csrr[ 	]+a0,mhpmevent19
++[ 	]+31c:[ 	]+33402573[ 	]+csrr[ 	]+a0,mhpmevent20
++[ 	]+320:[ 	]+33502573[ 	]+csrr[ 	]+a0,mhpmevent21
++[ 	]+324:[ 	]+33602573[ 	]+csrr[ 	]+a0,mhpmevent22
++[ 	]+328:[ 	]+33702573[ 	]+csrr[ 	]+a0,mhpmevent23
++[ 	]+32c:[ 	]+33802573[ 	]+csrr[ 	]+a0,mhpmevent24
++[ 	]+330:[ 	]+33902573[ 	]+csrr[ 	]+a0,mhpmevent25
++[ 	]+334:[ 	]+33a02573[ 	]+csrr[ 	]+a0,mhpmevent26
++[ 	]+338:[ 	]+33b02573[ 	]+csrr[ 	]+a0,mhpmevent27
++[ 	]+33c:[ 	]+33c02573[ 	]+csrr[ 	]+a0,mhpmevent28
++[ 	]+340:[ 	]+33d02573[ 	]+csrr[ 	]+a0,mhpmevent29
++[ 	]+344:[ 	]+33e02573[ 	]+csrr[ 	]+a0,mhpmevent30
++[ 	]+348:[ 	]+33f02573[ 	]+csrr[ 	]+a0,mhpmevent31
++[ 	]+34c:[ 	]+7a002573[ 	]+csrr[ 	]+a0,tselect
++[ 	]+350:[ 	]+7a102573[ 	]+csrr[ 	]+a0,tdata1
++[ 	]+354:[ 	]+7a202573[ 	]+csrr[ 	]+a0,tdata2
++[ 	]+358:[ 	]+7a302573[ 	]+csrr[ 	]+a0,tdata3
++[ 	]+35c:[ 	]+7b002573[ 	]+csrr[ 	]+a0,dcsr
++[ 	]+360:[ 	]+7b102573[ 	]+csrr[ 	]+a0,dpc
++[ 	]+364:[ 	]+7b202573[ 	]+csrr[ 	]+a0,dscratch
++[ 	]+368:[ 	]+04302573[ 	]+csrr[ 	]+a0,utval
++[ 	]+36c:[ 	]+10602573[ 	]+csrr[ 	]+a0,scounteren
++[ 	]+370:[ 	]+18002573[ 	]+csrr[ 	]+a0,satp
++[ 	]+374:[ 	]+30602573[ 	]+csrr[ 	]+a0,mcounteren
++[ 	]+378:[ 	]+3a002573[ 	]+csrr[ 	]+a0,pmpcfg0
++[ 	]+37c:[ 	]+3a102573[ 	]+csrr[ 	]+a0,pmpcfg1
++[ 	]+380:[ 	]+3a202573[ 	]+csrr[ 	]+a0,pmpcfg2
++[ 	]+384:[ 	]+3a302573[ 	]+csrr[ 	]+a0,pmpcfg3
++[ 	]+388:[ 	]+3b002573[ 	]+csrr[ 	]+a0,pmpaddr0
++[ 	]+38c:[ 	]+3b102573[ 	]+csrr[ 	]+a0,pmpaddr1
++[ 	]+390:[ 	]+3b202573[ 	]+csrr[ 	]+a0,pmpaddr2
++[ 	]+394:[ 	]+3b302573[ 	]+csrr[ 	]+a0,pmpaddr3
++[ 	]+398:[ 	]+3b402573[ 	]+csrr[ 	]+a0,pmpaddr4
++[ 	]+39c:[ 	]+3b502573[ 	]+csrr[ 	]+a0,pmpaddr5
++[ 	]+3a0:[ 	]+3b602573[ 	]+csrr[ 	]+a0,pmpaddr6
++[ 	]+3a4:[ 	]+3b702573[ 	]+csrr[ 	]+a0,pmpaddr7
++[ 	]+3a8:[ 	]+3b802573[ 	]+csrr[ 	]+a0,pmpaddr8
++[ 	]+3ac:[ 	]+3b902573[ 	]+csrr[ 	]+a0,pmpaddr9
++[ 	]+3b0:[ 	]+3ba02573[ 	]+csrr[ 	]+a0,pmpaddr10
++[ 	]+3b4:[ 	]+3bb02573[ 	]+csrr[ 	]+a0,pmpaddr11
++[ 	]+3b8:[ 	]+3bc02573[ 	]+csrr[ 	]+a0,pmpaddr12
++[ 	]+3bc:[ 	]+3bd02573[ 	]+csrr[ 	]+a0,pmpaddr13
++[ 	]+3c0:[ 	]+3be02573[ 	]+csrr[ 	]+a0,pmpaddr14
++[ 	]+3c4:[ 	]+3bf02573[ 	]+csrr[ 	]+a0,pmpaddr15
+diff --git a/gas/testsuite/gas/riscv/priv-reg.s b/gas/testsuite/gas/riscv/priv-reg.s
+new file mode 100644
+index 000000000000..4774f3651b05
+--- /dev/null
++++ b/gas/testsuite/gas/riscv/priv-reg.s
+@@ -0,0 +1,267 @@
++	.macro csr val
++	csrr a0,\val
++	.endm
++# 1.9.1 registers
++	csr ustatus
++	csr uie
++	csr utvec
++
++	csr uscratch
++	csr uepc
++	csr ucause
++	csr ubadaddr
++	csr uip
++
++	csr fflags
++	csr frm
++	csr fcsr
++
++	csr cycle
++	csr time
++	csr instret
++	csr hpmcounter3
++	csr hpmcounter4
++	csr hpmcounter5
++	csr hpmcounter6
++	csr hpmcounter7
++	csr hpmcounter8
++	csr hpmcounter9
++	csr hpmcounter10
++	csr hpmcounter11
++	csr hpmcounter12
++	csr hpmcounter13
++	csr hpmcounter14
++	csr hpmcounter15
++	csr hpmcounter16
++	csr hpmcounter17
++	csr hpmcounter18
++	csr hpmcounter19
++	csr hpmcounter20
++	csr hpmcounter21
++	csr hpmcounter22
++	csr hpmcounter23
++	csr hpmcounter24
++	csr hpmcounter25
++	csr hpmcounter26
++	csr hpmcounter27
++	csr hpmcounter28
++	csr hpmcounter29
++	csr hpmcounter30
++	csr hpmcounter31
++	csr cycleh
++	csr timeh
++	csr instreth
++	csr hpmcounter3h
++	csr hpmcounter4h
++	csr hpmcounter5h
++	csr hpmcounter6h
++	csr hpmcounter7h
++	csr hpmcounter8h
++	csr hpmcounter9h
++	csr hpmcounter10h
++	csr hpmcounter11h
++	csr hpmcounter12h
++	csr hpmcounter13h
++	csr hpmcounter14h
++	csr hpmcounter15h
++	csr hpmcounter16h
++	csr hpmcounter17h
++	csr hpmcounter18h
++	csr hpmcounter19h
++	csr hpmcounter20h
++	csr hpmcounter21h
++	csr hpmcounter22h
++	csr hpmcounter23h
++	csr hpmcounter24h
++	csr hpmcounter25h
++	csr hpmcounter26h
++	csr hpmcounter27h
++	csr hpmcounter28h
++	csr hpmcounter29h
++	csr hpmcounter30h
++	csr hpmcounter31h
++
++	csr sstatus
++	csr sedeleg
++	csr sideleg
++	csr sie
++	csr stvec
++
++	csr sscratch
++	csr sepc
++	csr scause
++	csr sbadaddr
++	csr sip
++
++	csr sptbr
++
++	csr hstatus
++	csr hedeleg
++	csr hideleg
++	csr hie
++	csr htvec
++
++	csr hscratch
++	csr hepc
++	csr hcause
++	csr hbadaddr
++	csr hip
++
++	csr mvendorid
++	csr marchid
++	csr mimpid
++	csr mhartid
++
++	csr mstatus
++	csr misa
++	csr medeleg
++	csr mideleg
++	csr mie
++	csr mtvec
++
++	csr mscratch
++	csr mepc
++	csr mcause
++	csr mbadaddr
++	csr mip
++
++	csr mbase
++	csr mbound
++	csr mibase
++	csr mibound
++	csr mdbase
++	csr mdbound
++
++	csr mcycle
++	csr minstret
++	csr mhpmcounter3
++	csr mhpmcounter4
++	csr mhpmcounter5
++	csr mhpmcounter6
++	csr mhpmcounter7
++	csr mhpmcounter8
++	csr mhpmcounter9
++	csr mhpmcounter10
++	csr mhpmcounter11
++	csr mhpmcounter12
++	csr mhpmcounter13
++	csr mhpmcounter14
++	csr mhpmcounter15
++	csr mhpmcounter16
++	csr mhpmcounter17
++	csr mhpmcounter18
++	csr mhpmcounter19
++	csr mhpmcounter20
++	csr mhpmcounter21
++	csr mhpmcounter22
++	csr mhpmcounter23
++	csr mhpmcounter24
++	csr mhpmcounter25
++	csr mhpmcounter26
++	csr mhpmcounter27
++	csr mhpmcounter28
++	csr mhpmcounter29
++	csr mhpmcounter30
++	csr mhpmcounter31
++	csr mcycleh
++	csr minstreth
++	csr mhpmcounter3h
++	csr mhpmcounter4h
++	csr mhpmcounter5h
++	csr mhpmcounter6h
++	csr mhpmcounter7h
++	csr mhpmcounter8h
++	csr mhpmcounter9h
++	csr mhpmcounter10h
++	csr mhpmcounter11h
++	csr mhpmcounter12h
++	csr mhpmcounter13h
++	csr mhpmcounter14h
++	csr mhpmcounter15h
++	csr mhpmcounter16h
++	csr mhpmcounter17h
++	csr mhpmcounter18h
++	csr mhpmcounter19h
++	csr mhpmcounter20h
++	csr mhpmcounter21h
++	csr mhpmcounter22h
++	csr mhpmcounter23h
++	csr mhpmcounter24h
++	csr mhpmcounter25h
++	csr mhpmcounter26h
++	csr mhpmcounter27h
++	csr mhpmcounter28h
++	csr mhpmcounter29h
++	csr mhpmcounter30h
++	csr mhpmcounter31h
++
++	csr mucounteren
++	csr mscounteren
++	csr mhcounteren
++
++	csr mhpmevent3
++	csr mhpmevent4
++	csr mhpmevent5
++	csr mhpmevent6
++	csr mhpmevent7
++	csr mhpmevent8
++	csr mhpmevent9
++	csr mhpmevent10
++	csr mhpmevent11
++	csr mhpmevent12
++	csr mhpmevent13
++	csr mhpmevent14
++	csr mhpmevent15
++	csr mhpmevent16
++	csr mhpmevent17
++	csr mhpmevent18
++	csr mhpmevent19
++	csr mhpmevent20
++	csr mhpmevent21
++	csr mhpmevent22
++	csr mhpmevent23
++	csr mhpmevent24
++	csr mhpmevent25
++	csr mhpmevent26
++	csr mhpmevent27
++	csr mhpmevent28
++	csr mhpmevent29
++	csr mhpmevent30
++	csr mhpmevent31
++
++	csr tselect
++	csr tdata1
++	csr tdata2
++	csr tdata3
++
++	csr dcsr
++	csr dpc
++	csr dscratch
++# 1.10 registers
++	csr utval
++
++	csr scounteren
++	csr satp
++
++	csr mcounteren
++
++	csr pmpcfg0
++	csr pmpcfg1
++	csr pmpcfg2
++	csr pmpcfg3
++	csr pmpaddr0
++	csr pmpaddr1
++	csr pmpaddr2
++	csr pmpaddr3
++	csr pmpaddr4
++	csr pmpaddr5
++	csr pmpaddr6
++	csr pmpaddr7
++	csr pmpaddr8
++	csr pmpaddr9
++	csr pmpaddr10
++	csr pmpaddr11
++	csr pmpaddr12
++	csr pmpaddr13
++	csr pmpaddr14
++	csr pmpaddr15
 diff --git a/gas/testsuite/gas/riscv/riscv.exp b/gas/testsuite/gas/riscv/riscv.exp
-index 6922318ac0fc..ef0ec4ac53bb 100644
+index 6922318ac0fc..56492d9c2c59 100644
 --- a/gas/testsuite/gas/riscv/riscv.exp
 +++ b/gas/testsuite/gas/riscv/riscv.exp
-@@ -20,4 +20,12 @@
+@@ -20,4 +20,14 @@
  
  if [istarget riscv*-*-*] {
      run_dump_test "t_insns"
@@ -1402,6 +2404,8 @@ index 6922318ac0fc..ef0ec4ac53bb 100644
 +    run_dump_test "fmv.x"
 +    run_dump_test "c-lw"
 +    run_dump_test "c-ld"
++    run_dump_tests [lsort [glob -nocomplain $srcdir/$subdir/*.d]]
++    run_list_test "align-1"
  }
 diff --git a/gas/testsuite/gas/riscv/satp.d b/gas/testsuite/gas/riscv/satp.d
 new file mode 100644
@@ -1564,37 +2568,458 @@ index 000000000000..932cf4922135
 +  SIM_RISCV_LAST_REGNUM
 +};
 diff --git a/include/opcode/riscv-opc.h b/include/opcode/riscv-opc.h
-index b203a6ab1943..ee37d3ff505d 100644
+index b203a6ab1943..64635e113426 100644
 --- a/include/opcode/riscv-opc.h
 +++ b/include/opcode/riscv-opc.h
-@@ -611,7 +611,7 @@
+@@ -567,6 +567,14 @@
+ #define MASK_CUSTOM3_RD_RS1  0x707f
+ #define MATCH_CUSTOM3_RD_RS1_RS2 0x707b
+ #define MASK_CUSTOM3_RD_RS1_RS2  0x707f
++#define CSR_USTATUS 0x0
++#define CSR_UIE 0x4
++#define CSR_UTVEC 0x5
++#define CSR_USCRATCH 0x40
++#define CSR_UEPC 0x41
++#define CSR_UCAUSE 0x42
++#define CSR_UTVAL 0x43
++#define CSR_UIP 0x44
+ #define CSR_FFLAGS 0x1
+ #define CSR_FRM 0x2
+ #define CSR_FCSR 0x3
+@@ -602,7 +610,41 @@
+ #define CSR_HPMCOUNTER29 0xc1d
+ #define CSR_HPMCOUNTER30 0xc1e
+ #define CSR_HPMCOUNTER31 0xc1f
++#define CSR_CYCLEH 0xc80
++#define CSR_TIMEH 0xc81
++#define CSR_INSTRETH 0xc82
++#define CSR_HPMCOUNTER3H 0xc83
++#define CSR_HPMCOUNTER4H 0xc84
++#define CSR_HPMCOUNTER5H 0xc85
++#define CSR_HPMCOUNTER6H 0xc86
++#define CSR_HPMCOUNTER7H 0xc87
++#define CSR_HPMCOUNTER8H 0xc88
++#define CSR_HPMCOUNTER9H 0xc89
++#define CSR_HPMCOUNTER10H 0xc8a
++#define CSR_HPMCOUNTER11H 0xc8b
++#define CSR_HPMCOUNTER12H 0xc8c
++#define CSR_HPMCOUNTER13H 0xc8d
++#define CSR_HPMCOUNTER14H 0xc8e
++#define CSR_HPMCOUNTER15H 0xc8f
++#define CSR_HPMCOUNTER16H 0xc90
++#define CSR_HPMCOUNTER17H 0xc91
++#define CSR_HPMCOUNTER18H 0xc92
++#define CSR_HPMCOUNTER19H 0xc93
++#define CSR_HPMCOUNTER20H 0xc94
++#define CSR_HPMCOUNTER21H 0xc95
++#define CSR_HPMCOUNTER22H 0xc96
++#define CSR_HPMCOUNTER23H 0xc97
++#define CSR_HPMCOUNTER24H 0xc98
++#define CSR_HPMCOUNTER25H 0xc99
++#define CSR_HPMCOUNTER26H 0xc9a
++#define CSR_HPMCOUNTER27H 0xc9b
++#define CSR_HPMCOUNTER28H 0xc9c
++#define CSR_HPMCOUNTER29H 0xc9d
++#define CSR_HPMCOUNTER30H 0xc9e
++#define CSR_HPMCOUNTER31H 0xc9f
+ #define CSR_SSTATUS 0x100
++#define CSR_SEDELEG 0x102
++#define CSR_SIDELEG 0x103
+ #define CSR_SIE 0x104
+ #define CSR_STVEC 0x105
+ #define CSR_SCOUNTEREN 0x106
+@@ -611,7 +653,11 @@
  #define CSR_SCAUSE 0x142
  #define CSR_SBADADDR 0x143
  #define CSR_SIP 0x144
 -#define CSR_SPTBR 0x180
 +#define CSR_SATP 0x180
++#define CSR_MVENDORID 0xf11
++#define CSR_MARCHID 0xf12
++#define CSR_MIMPID 0xf13
++#define CSR_MHARTID 0xf14
  #define CSR_MSTATUS 0x300
  #define CSR_MISA 0x301
  #define CSR_MEDELEG 0x302
-@@ -1123,7 +1123,7 @@ DECLARE_CSR(sepc, CSR_SEPC)
+@@ -644,13 +690,6 @@
+ #define CSR_PMPADDR13 0x3bd
+ #define CSR_PMPADDR14 0x3be
+ #define CSR_PMPADDR15 0x3bf
+-#define CSR_TSELECT 0x7a0
+-#define CSR_TDATA1 0x7a1
+-#define CSR_TDATA2 0x7a2
+-#define CSR_TDATA3 0x7a3
+-#define CSR_DCSR 0x7b0
+-#define CSR_DPC 0x7b1
+-#define CSR_DSCRATCH 0x7b2
+ #define CSR_MCYCLE 0xb00
+ #define CSR_MINSTRET 0xb02
+ #define CSR_MHPMCOUNTER3 0xb03
+@@ -682,73 +721,6 @@
+ #define CSR_MHPMCOUNTER29 0xb1d
+ #define CSR_MHPMCOUNTER30 0xb1e
+ #define CSR_MHPMCOUNTER31 0xb1f
+-#define CSR_MUCOUNTEREN 0x320
+-#define CSR_MSCOUNTEREN 0x321
+-#define CSR_MHPMEVENT3 0x323
+-#define CSR_MHPMEVENT4 0x324
+-#define CSR_MHPMEVENT5 0x325
+-#define CSR_MHPMEVENT6 0x326
+-#define CSR_MHPMEVENT7 0x327
+-#define CSR_MHPMEVENT8 0x328
+-#define CSR_MHPMEVENT9 0x329
+-#define CSR_MHPMEVENT10 0x32a
+-#define CSR_MHPMEVENT11 0x32b
+-#define CSR_MHPMEVENT12 0x32c
+-#define CSR_MHPMEVENT13 0x32d
+-#define CSR_MHPMEVENT14 0x32e
+-#define CSR_MHPMEVENT15 0x32f
+-#define CSR_MHPMEVENT16 0x330
+-#define CSR_MHPMEVENT17 0x331
+-#define CSR_MHPMEVENT18 0x332
+-#define CSR_MHPMEVENT19 0x333
+-#define CSR_MHPMEVENT20 0x334
+-#define CSR_MHPMEVENT21 0x335
+-#define CSR_MHPMEVENT22 0x336
+-#define CSR_MHPMEVENT23 0x337
+-#define CSR_MHPMEVENT24 0x338
+-#define CSR_MHPMEVENT25 0x339
+-#define CSR_MHPMEVENT26 0x33a
+-#define CSR_MHPMEVENT27 0x33b
+-#define CSR_MHPMEVENT28 0x33c
+-#define CSR_MHPMEVENT29 0x33d
+-#define CSR_MHPMEVENT30 0x33e
+-#define CSR_MHPMEVENT31 0x33f
+-#define CSR_MVENDORID 0xf11
+-#define CSR_MARCHID 0xf12
+-#define CSR_MIMPID 0xf13
+-#define CSR_MHARTID 0xf14
+-#define CSR_CYCLEH 0xc80
+-#define CSR_TIMEH 0xc81
+-#define CSR_INSTRETH 0xc82
+-#define CSR_HPMCOUNTER3H 0xc83
+-#define CSR_HPMCOUNTER4H 0xc84
+-#define CSR_HPMCOUNTER5H 0xc85
+-#define CSR_HPMCOUNTER6H 0xc86
+-#define CSR_HPMCOUNTER7H 0xc87
+-#define CSR_HPMCOUNTER8H 0xc88
+-#define CSR_HPMCOUNTER9H 0xc89
+-#define CSR_HPMCOUNTER10H 0xc8a
+-#define CSR_HPMCOUNTER11H 0xc8b
+-#define CSR_HPMCOUNTER12H 0xc8c
+-#define CSR_HPMCOUNTER13H 0xc8d
+-#define CSR_HPMCOUNTER14H 0xc8e
+-#define CSR_HPMCOUNTER15H 0xc8f
+-#define CSR_HPMCOUNTER16H 0xc90
+-#define CSR_HPMCOUNTER17H 0xc91
+-#define CSR_HPMCOUNTER18H 0xc92
+-#define CSR_HPMCOUNTER19H 0xc93
+-#define CSR_HPMCOUNTER20H 0xc94
+-#define CSR_HPMCOUNTER21H 0xc95
+-#define CSR_HPMCOUNTER22H 0xc96
+-#define CSR_HPMCOUNTER23H 0xc97
+-#define CSR_HPMCOUNTER24H 0xc98
+-#define CSR_HPMCOUNTER25H 0xc99
+-#define CSR_HPMCOUNTER26H 0xc9a
+-#define CSR_HPMCOUNTER27H 0xc9b
+-#define CSR_HPMCOUNTER28H 0xc9c
+-#define CSR_HPMCOUNTER29H 0xc9d
+-#define CSR_HPMCOUNTER30H 0xc9e
+-#define CSR_HPMCOUNTER31H 0xc9f
+ #define CSR_MCYCLEH 0xb80
+ #define CSR_MINSTRETH 0xb82
+ #define CSR_MHPMCOUNTER3H 0xb83
+@@ -780,6 +752,63 @@
+ #define CSR_MHPMCOUNTER29H 0xb9d
+ #define CSR_MHPMCOUNTER30H 0xb9e
+ #define CSR_MHPMCOUNTER31H 0xb9f
++#define CSR_MHPMEVENT3 0x323
++#define CSR_MHPMEVENT4 0x324
++#define CSR_MHPMEVENT5 0x325
++#define CSR_MHPMEVENT6 0x326
++#define CSR_MHPMEVENT7 0x327
++#define CSR_MHPMEVENT8 0x328
++#define CSR_MHPMEVENT9 0x329
++#define CSR_MHPMEVENT10 0x32a
++#define CSR_MHPMEVENT11 0x32b
++#define CSR_MHPMEVENT12 0x32c
++#define CSR_MHPMEVENT13 0x32d
++#define CSR_MHPMEVENT14 0x32e
++#define CSR_MHPMEVENT15 0x32f
++#define CSR_MHPMEVENT16 0x330
++#define CSR_MHPMEVENT17 0x331
++#define CSR_MHPMEVENT18 0x332
++#define CSR_MHPMEVENT19 0x333
++#define CSR_MHPMEVENT20 0x334
++#define CSR_MHPMEVENT21 0x335
++#define CSR_MHPMEVENT22 0x336
++#define CSR_MHPMEVENT23 0x337
++#define CSR_MHPMEVENT24 0x338
++#define CSR_MHPMEVENT25 0x339
++#define CSR_MHPMEVENT26 0x33a
++#define CSR_MHPMEVENT27 0x33b
++#define CSR_MHPMEVENT28 0x33c
++#define CSR_MHPMEVENT29 0x33d
++#define CSR_MHPMEVENT30 0x33e
++#define CSR_MHPMEVENT31 0x33f
++#define CSR_TSELECT 0x7a0
++#define CSR_TDATA1 0x7a1
++#define CSR_TDATA2 0x7a2
++#define CSR_TDATA3 0x7a3
++#define CSR_DCSR 0x7b0
++#define CSR_DPC 0x7b1
++#define CSR_DSCRATCH 0x7b2
++/* These registers are present in priv spec 1.9.1, dropped in 1.10.  */
++#define CSR_HSTATUS 0x200
++#define CSR_HEDELEG 0x202
++#define CSR_HIDELEG 0x203
++#define CSR_HIE 0x204
++#define CSR_HTVEC 0x205
++#define CSR_HSCRATCH 0x240
++#define CSR_HEPC 0x241
++#define CSR_HCAUSE 0x242
++#define CSR_HBADADDR 0x243
++#define CSR_HIP 0x244
++/* CSR_MISA is 0xf10 in 1.9, but 0x301 in 1.9.1.  */
++#define CSR_MBASE 0x380
++#define CSR_MBOUND 0x381
++#define CSR_MIBASE 0x382
++#define CSR_MIBOUND 0x383
++#define CSR_MDBASE 0x384
++#define CSR_MDBOUND 0x385
++#define CSR_MUCOUNTEREN 0x320
++#define CSR_MSCOUNTEREN 0x321
++#define CSR_MHCOUNTEREN 0x322
+ #define CAUSE_MISALIGNED_FETCH 0x0
+ #define CAUSE_FAULT_FETCH 0x1
+ #define CAUSE_ILLEGAL_INSTRUCTION 0x2
+@@ -1079,6 +1108,14 @@ DECLARE_INSN(custom3_rd_rs1, MATCH_CUSTOM3_RD_RS1, MASK_CUSTOM3_RD_RS1)
+ DECLARE_INSN(custom3_rd_rs1_rs2, MATCH_CUSTOM3_RD_RS1_RS2, MASK_CUSTOM3_RD_RS1_RS2)
+ #endif
+ #ifdef DECLARE_CSR
++DECLARE_CSR(ustatus, CSR_USTATUS)
++DECLARE_CSR(uie, CSR_UIE)
++DECLARE_CSR(utvec, CSR_UTVEC)
++DECLARE_CSR(uscratch, CSR_USCRATCH)
++DECLARE_CSR(uepc, CSR_UEPC)
++DECLARE_CSR(ucause, CSR_UCAUSE)
++DECLARE_CSR(utval, CSR_UTVAL)
++DECLARE_CSR(uip, CSR_UIP)
+ DECLARE_CSR(fflags, CSR_FFLAGS)
+ DECLARE_CSR(frm, CSR_FRM)
+ DECLARE_CSR(fcsr, CSR_FCSR)
+@@ -1114,7 +1151,41 @@ DECLARE_CSR(hpmcounter28, CSR_HPMCOUNTER28)
+ DECLARE_CSR(hpmcounter29, CSR_HPMCOUNTER29)
+ DECLARE_CSR(hpmcounter30, CSR_HPMCOUNTER30)
+ DECLARE_CSR(hpmcounter31, CSR_HPMCOUNTER31)
++DECLARE_CSR(cycleh, CSR_CYCLEH)
++DECLARE_CSR(timeh, CSR_TIMEH)
++DECLARE_CSR(instreth, CSR_INSTRETH)
++DECLARE_CSR(hpmcounter3h, CSR_HPMCOUNTER3H)
++DECLARE_CSR(hpmcounter4h, CSR_HPMCOUNTER4H)
++DECLARE_CSR(hpmcounter5h, CSR_HPMCOUNTER5H)
++DECLARE_CSR(hpmcounter6h, CSR_HPMCOUNTER6H)
++DECLARE_CSR(hpmcounter7h, CSR_HPMCOUNTER7H)
++DECLARE_CSR(hpmcounter8h, CSR_HPMCOUNTER8H)
++DECLARE_CSR(hpmcounter9h, CSR_HPMCOUNTER9H)
++DECLARE_CSR(hpmcounter10h, CSR_HPMCOUNTER10H)
++DECLARE_CSR(hpmcounter11h, CSR_HPMCOUNTER11H)
++DECLARE_CSR(hpmcounter12h, CSR_HPMCOUNTER12H)
++DECLARE_CSR(hpmcounter13h, CSR_HPMCOUNTER13H)
++DECLARE_CSR(hpmcounter14h, CSR_HPMCOUNTER14H)
++DECLARE_CSR(hpmcounter15h, CSR_HPMCOUNTER15H)
++DECLARE_CSR(hpmcounter16h, CSR_HPMCOUNTER16H)
++DECLARE_CSR(hpmcounter17h, CSR_HPMCOUNTER17H)
++DECLARE_CSR(hpmcounter18h, CSR_HPMCOUNTER18H)
++DECLARE_CSR(hpmcounter19h, CSR_HPMCOUNTER19H)
++DECLARE_CSR(hpmcounter20h, CSR_HPMCOUNTER20H)
++DECLARE_CSR(hpmcounter21h, CSR_HPMCOUNTER21H)
++DECLARE_CSR(hpmcounter22h, CSR_HPMCOUNTER22H)
++DECLARE_CSR(hpmcounter23h, CSR_HPMCOUNTER23H)
++DECLARE_CSR(hpmcounter24h, CSR_HPMCOUNTER24H)
++DECLARE_CSR(hpmcounter25h, CSR_HPMCOUNTER25H)
++DECLARE_CSR(hpmcounter26h, CSR_HPMCOUNTER26H)
++DECLARE_CSR(hpmcounter27h, CSR_HPMCOUNTER27H)
++DECLARE_CSR(hpmcounter28h, CSR_HPMCOUNTER28H)
++DECLARE_CSR(hpmcounter29h, CSR_HPMCOUNTER29H)
++DECLARE_CSR(hpmcounter30h, CSR_HPMCOUNTER30H)
++DECLARE_CSR(hpmcounter31h, CSR_HPMCOUNTER31H)
+ DECLARE_CSR(sstatus, CSR_SSTATUS)
++DECLARE_CSR(sedeleg, CSR_SEDELEG)
++DECLARE_CSR(sideleg, CSR_SIDELEG)
+ DECLARE_CSR(sie, CSR_SIE)
+ DECLARE_CSR(stvec, CSR_STVEC)
+ DECLARE_CSR(scounteren, CSR_SCOUNTEREN)
+@@ -1123,7 +1194,11 @@ DECLARE_CSR(sepc, CSR_SEPC)
  DECLARE_CSR(scause, CSR_SCAUSE)
  DECLARE_CSR(sbadaddr, CSR_SBADADDR)
  DECLARE_CSR(sip, CSR_SIP)
 -DECLARE_CSR(sptbr, CSR_SPTBR)
 +DECLARE_CSR(satp, CSR_SATP)
++DECLARE_CSR(mvendorid, CSR_MVENDORID)
++DECLARE_CSR(marchid, CSR_MARCHID)
++DECLARE_CSR(mimpid, CSR_MIMPID)
++DECLARE_CSR(mhartid, CSR_MHARTID)
  DECLARE_CSR(mstatus, CSR_MSTATUS)
  DECLARE_CSR(misa, CSR_MISA)
  DECLARE_CSR(medeleg, CSR_MEDELEG)
-@@ -1293,6 +1293,9 @@ DECLARE_CSR(mhpmcounter29h, CSR_MHPMCOUNTER29H)
+@@ -1156,13 +1231,6 @@ DECLARE_CSR(pmpaddr12, CSR_PMPADDR12)
+ DECLARE_CSR(pmpaddr13, CSR_PMPADDR13)
+ DECLARE_CSR(pmpaddr14, CSR_PMPADDR14)
+ DECLARE_CSR(pmpaddr15, CSR_PMPADDR15)
+-DECLARE_CSR(tselect, CSR_TSELECT)
+-DECLARE_CSR(tdata1, CSR_TDATA1)
+-DECLARE_CSR(tdata2, CSR_TDATA2)
+-DECLARE_CSR(tdata3, CSR_TDATA3)
+-DECLARE_CSR(dcsr, CSR_DCSR)
+-DECLARE_CSR(dpc, CSR_DPC)
+-DECLARE_CSR(dscratch, CSR_DSCRATCH)
+ DECLARE_CSR(mcycle, CSR_MCYCLE)
+ DECLARE_CSR(minstret, CSR_MINSTRET)
+ DECLARE_CSR(mhpmcounter3, CSR_MHPMCOUNTER3)
+@@ -1194,73 +1262,6 @@ DECLARE_CSR(mhpmcounter28, CSR_MHPMCOUNTER28)
+ DECLARE_CSR(mhpmcounter29, CSR_MHPMCOUNTER29)
+ DECLARE_CSR(mhpmcounter30, CSR_MHPMCOUNTER30)
+ DECLARE_CSR(mhpmcounter31, CSR_MHPMCOUNTER31)
+-DECLARE_CSR(mucounteren, CSR_MUCOUNTEREN)
+-DECLARE_CSR(mscounteren, CSR_MSCOUNTEREN)
+-DECLARE_CSR(mhpmevent3, CSR_MHPMEVENT3)
+-DECLARE_CSR(mhpmevent4, CSR_MHPMEVENT4)
+-DECLARE_CSR(mhpmevent5, CSR_MHPMEVENT5)
+-DECLARE_CSR(mhpmevent6, CSR_MHPMEVENT6)
+-DECLARE_CSR(mhpmevent7, CSR_MHPMEVENT7)
+-DECLARE_CSR(mhpmevent8, CSR_MHPMEVENT8)
+-DECLARE_CSR(mhpmevent9, CSR_MHPMEVENT9)
+-DECLARE_CSR(mhpmevent10, CSR_MHPMEVENT10)
+-DECLARE_CSR(mhpmevent11, CSR_MHPMEVENT11)
+-DECLARE_CSR(mhpmevent12, CSR_MHPMEVENT12)
+-DECLARE_CSR(mhpmevent13, CSR_MHPMEVENT13)
+-DECLARE_CSR(mhpmevent14, CSR_MHPMEVENT14)
+-DECLARE_CSR(mhpmevent15, CSR_MHPMEVENT15)
+-DECLARE_CSR(mhpmevent16, CSR_MHPMEVENT16)
+-DECLARE_CSR(mhpmevent17, CSR_MHPMEVENT17)
+-DECLARE_CSR(mhpmevent18, CSR_MHPMEVENT18)
+-DECLARE_CSR(mhpmevent19, CSR_MHPMEVENT19)
+-DECLARE_CSR(mhpmevent20, CSR_MHPMEVENT20)
+-DECLARE_CSR(mhpmevent21, CSR_MHPMEVENT21)
+-DECLARE_CSR(mhpmevent22, CSR_MHPMEVENT22)
+-DECLARE_CSR(mhpmevent23, CSR_MHPMEVENT23)
+-DECLARE_CSR(mhpmevent24, CSR_MHPMEVENT24)
+-DECLARE_CSR(mhpmevent25, CSR_MHPMEVENT25)
+-DECLARE_CSR(mhpmevent26, CSR_MHPMEVENT26)
+-DECLARE_CSR(mhpmevent27, CSR_MHPMEVENT27)
+-DECLARE_CSR(mhpmevent28, CSR_MHPMEVENT28)
+-DECLARE_CSR(mhpmevent29, CSR_MHPMEVENT29)
+-DECLARE_CSR(mhpmevent30, CSR_MHPMEVENT30)
+-DECLARE_CSR(mhpmevent31, CSR_MHPMEVENT31)
+-DECLARE_CSR(mvendorid, CSR_MVENDORID)
+-DECLARE_CSR(marchid, CSR_MARCHID)
+-DECLARE_CSR(mimpid, CSR_MIMPID)
+-DECLARE_CSR(mhartid, CSR_MHARTID)
+-DECLARE_CSR(cycleh, CSR_CYCLEH)
+-DECLARE_CSR(timeh, CSR_TIMEH)
+-DECLARE_CSR(instreth, CSR_INSTRETH)
+-DECLARE_CSR(hpmcounter3h, CSR_HPMCOUNTER3H)
+-DECLARE_CSR(hpmcounter4h, CSR_HPMCOUNTER4H)
+-DECLARE_CSR(hpmcounter5h, CSR_HPMCOUNTER5H)
+-DECLARE_CSR(hpmcounter6h, CSR_HPMCOUNTER6H)
+-DECLARE_CSR(hpmcounter7h, CSR_HPMCOUNTER7H)
+-DECLARE_CSR(hpmcounter8h, CSR_HPMCOUNTER8H)
+-DECLARE_CSR(hpmcounter9h, CSR_HPMCOUNTER9H)
+-DECLARE_CSR(hpmcounter10h, CSR_HPMCOUNTER10H)
+-DECLARE_CSR(hpmcounter11h, CSR_HPMCOUNTER11H)
+-DECLARE_CSR(hpmcounter12h, CSR_HPMCOUNTER12H)
+-DECLARE_CSR(hpmcounter13h, CSR_HPMCOUNTER13H)
+-DECLARE_CSR(hpmcounter14h, CSR_HPMCOUNTER14H)
+-DECLARE_CSR(hpmcounter15h, CSR_HPMCOUNTER15H)
+-DECLARE_CSR(hpmcounter16h, CSR_HPMCOUNTER16H)
+-DECLARE_CSR(hpmcounter17h, CSR_HPMCOUNTER17H)
+-DECLARE_CSR(hpmcounter18h, CSR_HPMCOUNTER18H)
+-DECLARE_CSR(hpmcounter19h, CSR_HPMCOUNTER19H)
+-DECLARE_CSR(hpmcounter20h, CSR_HPMCOUNTER20H)
+-DECLARE_CSR(hpmcounter21h, CSR_HPMCOUNTER21H)
+-DECLARE_CSR(hpmcounter22h, CSR_HPMCOUNTER22H)
+-DECLARE_CSR(hpmcounter23h, CSR_HPMCOUNTER23H)
+-DECLARE_CSR(hpmcounter24h, CSR_HPMCOUNTER24H)
+-DECLARE_CSR(hpmcounter25h, CSR_HPMCOUNTER25H)
+-DECLARE_CSR(hpmcounter26h, CSR_HPMCOUNTER26H)
+-DECLARE_CSR(hpmcounter27h, CSR_HPMCOUNTER27H)
+-DECLARE_CSR(hpmcounter28h, CSR_HPMCOUNTER28H)
+-DECLARE_CSR(hpmcounter29h, CSR_HPMCOUNTER29H)
+-DECLARE_CSR(hpmcounter30h, CSR_HPMCOUNTER30H)
+-DECLARE_CSR(hpmcounter31h, CSR_HPMCOUNTER31H)
+ DECLARE_CSR(mcycleh, CSR_MCYCLEH)
+ DECLARE_CSR(minstreth, CSR_MINSTRETH)
+ DECLARE_CSR(mhpmcounter3h, CSR_MHPMCOUNTER3H)
+@@ -1292,6 +1293,68 @@ DECLARE_CSR(mhpmcounter28h, CSR_MHPMCOUNTER28H)
+ DECLARE_CSR(mhpmcounter29h, CSR_MHPMCOUNTER29H)
  DECLARE_CSR(mhpmcounter30h, CSR_MHPMCOUNTER30H)
  DECLARE_CSR(mhpmcounter31h, CSR_MHPMCOUNTER31H)
- #endif
-+#ifdef DECLARE_CSR_ALIAS
-+DECLARE_CSR_ALIAS(sptbr, CSR_SATP)
++DECLARE_CSR(mhpmevent3, CSR_MHPMEVENT3)
++DECLARE_CSR(mhpmevent4, CSR_MHPMEVENT4)
++DECLARE_CSR(mhpmevent5, CSR_MHPMEVENT5)
++DECLARE_CSR(mhpmevent6, CSR_MHPMEVENT6)
++DECLARE_CSR(mhpmevent7, CSR_MHPMEVENT7)
++DECLARE_CSR(mhpmevent8, CSR_MHPMEVENT8)
++DECLARE_CSR(mhpmevent9, CSR_MHPMEVENT9)
++DECLARE_CSR(mhpmevent10, CSR_MHPMEVENT10)
++DECLARE_CSR(mhpmevent11, CSR_MHPMEVENT11)
++DECLARE_CSR(mhpmevent12, CSR_MHPMEVENT12)
++DECLARE_CSR(mhpmevent13, CSR_MHPMEVENT13)
++DECLARE_CSR(mhpmevent14, CSR_MHPMEVENT14)
++DECLARE_CSR(mhpmevent15, CSR_MHPMEVENT15)
++DECLARE_CSR(mhpmevent16, CSR_MHPMEVENT16)
++DECLARE_CSR(mhpmevent17, CSR_MHPMEVENT17)
++DECLARE_CSR(mhpmevent18, CSR_MHPMEVENT18)
++DECLARE_CSR(mhpmevent19, CSR_MHPMEVENT19)
++DECLARE_CSR(mhpmevent20, CSR_MHPMEVENT20)
++DECLARE_CSR(mhpmevent21, CSR_MHPMEVENT21)
++DECLARE_CSR(mhpmevent22, CSR_MHPMEVENT22)
++DECLARE_CSR(mhpmevent23, CSR_MHPMEVENT23)
++DECLARE_CSR(mhpmevent24, CSR_MHPMEVENT24)
++DECLARE_CSR(mhpmevent25, CSR_MHPMEVENT25)
++DECLARE_CSR(mhpmevent26, CSR_MHPMEVENT26)
++DECLARE_CSR(mhpmevent27, CSR_MHPMEVENT27)
++DECLARE_CSR(mhpmevent28, CSR_MHPMEVENT28)
++DECLARE_CSR(mhpmevent29, CSR_MHPMEVENT29)
++DECLARE_CSR(mhpmevent30, CSR_MHPMEVENT30)
++DECLARE_CSR(mhpmevent31, CSR_MHPMEVENT31)
++DECLARE_CSR(tselect, CSR_TSELECT)
++DECLARE_CSR(tdata1, CSR_TDATA1)
++DECLARE_CSR(tdata2, CSR_TDATA2)
++DECLARE_CSR(tdata3, CSR_TDATA3)
++DECLARE_CSR(dcsr, CSR_DCSR)
++DECLARE_CSR(dpc, CSR_DPC)
++DECLARE_CSR(dscratch, CSR_DSCRATCH)
++/* These registers are present in priv spec 1.9.1, dropped in 1.10.  */
++DECLARE_CSR(hstatus, CSR_HSTATUS)
++DECLARE_CSR(hedeleg, CSR_HEDELEG)
++DECLARE_CSR(hideleg, CSR_HIDELEG)
++DECLARE_CSR(hie, CSR_HIE)
++DECLARE_CSR(htvec, CSR_HTVEC)
++DECLARE_CSR(hscratch, CSR_HSCRATCH)
++DECLARE_CSR(hepc, CSR_HEPC)
++DECLARE_CSR(hcause, CSR_HCAUSE)
++DECLARE_CSR(hbadaddr, CSR_HBADADDR)
++DECLARE_CSR(hip, CSR_HIP)
++DECLARE_CSR(mbase, CSR_MBASE)
++DECLARE_CSR(mbound, CSR_MBOUND)
++DECLARE_CSR(mibase, CSR_MIBASE)
++DECLARE_CSR(mibound, CSR_MIBOUND)
++DECLARE_CSR(mdbase, CSR_MDBASE)
++DECLARE_CSR(mdbound, CSR_MDBOUND)
++DECLARE_CSR(mucounteren, CSR_MUCOUNTEREN)
++DECLARE_CSR(mscounteren, CSR_MSCOUNTEREN)
++DECLARE_CSR(mhcounteren, CSR_MHCOUNTEREN)
 +#endif
++#ifdef DECLARE_CSR_ALIAS
++/* Ubadaddr is 0x043 in 1.9.1, but 0x043 is utval in 1.10.  */
++DECLARE_CSR_ALIAS(ubadaddr, CSR_UTVAL)
++/* Sptbr is 0x180 in 1.9.1, but 0x180 is satp in 1.10.  */
++DECLARE_CSR_ALIAS(sptbr, CSR_SATP)
+ #endif
  #ifdef DECLARE_CAUSE
  DECLARE_CAUSE("misaligned fetch", CAUSE_MISALIGNED_FETCH)
- DECLARE_CAUSE("fault fetch", CAUSE_FAULT_FETCH)
 diff --git a/include/opcode/riscv.h b/include/opcode/riscv.h
 index 719565d1ba53..015e78131495 100644
 --- a/include/opcode/riscv.h
@@ -1608,6 +3033,20 @@ index 719565d1ba53..015e78131495 100644
  #define VALID_RVC_SIMM3(x) (EXTRACT_RVC_SIMM3(ENCODE_RVC_SIMM3(x)) == (x))
  #define VALID_RVC_ADDI4SPN_IMM(x) (EXTRACT_RVC_ADDI4SPN_IMM(ENCODE_RVC_ADDI4SPN_IMM(x)) == (x))
  #define VALID_RVC_ADDI16SP_IMM(x) (EXTRACT_RVC_ADDI16SP_IMM(ENCODE_RVC_ADDI16SP_IMM(x)) == (x))
+diff --git a/ld/emulparams/elf32lriscv-defs.sh b/ld/emulparams/elf32lriscv-defs.sh
+index ab803332898b..29ed6d8542a1 100644
+--- a/ld/emulparams/elf32lriscv-defs.sh
++++ b/ld/emulparams/elf32lriscv-defs.sh
+@@ -23,7 +23,8 @@ TEXT_START_ADDR=0x10000
+ MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
+ COMMONPAGESIZE="CONSTANT (COMMONPAGESIZE)"
+ 
+-SDATA_START_SYMBOLS="__global_pointer$ = . + 0x800;
++SDATA_START_SYMBOLS="__global_pointer$ = . + 0x800;"
++SDATA_START_SYMBOLS="${CREATE_SHLIB-${SDATA_START_SYMBOLS}}
+     *(.srodata.cst16) *(.srodata.cst8) *(.srodata.cst4) *(.srodata.cst2) *(.srodata .srodata.*)"
+ 
+ INITIAL_READONLY_SECTIONS=".interp         : { *(.interp) } ${CREATE_PIE-${INITIAL_READONLY_SECTIONS}}"
 diff --git a/ld/emultempl/riscvelf.em b/ld/emultempl/riscvelf.em
 index 99af4d864261..7b30f528628a 100644
 --- a/ld/emultempl/riscvelf.em
@@ -1671,6 +3110,76 @@ index 3ca40f9ddbf6..5c5592df50c6 100644
  
  #failif
  #...
+diff --git a/ld/testsuite/ld-elf/interleave-0.d b/ld/testsuite/ld-elf/interleave-0.d
+new file mode 100644
+index 000000000000..837223c83a46
+--- /dev/null
++++ b/ld/testsuite/ld-elf/interleave-0.d
+@@ -0,0 +1,9 @@
++#name: --interleave test byte 0
++#source: interleave.s
++#ld: -Tinterleave.ld
++#objcopy: --interleave=8 --interleave-width=1 --byte=0 -O verilog
++
++@0+0
++00 
++@0+2
++14 
+diff --git a/ld/testsuite/ld-elf/interleave-4.d b/ld/testsuite/ld-elf/interleave-4.d
+new file mode 100644
+index 000000000000..a4bb808ab6e0
+--- /dev/null
++++ b/ld/testsuite/ld-elf/interleave-4.d
+@@ -0,0 +1,9 @@
++#name: --interleave test byte 4
++#source: interleave.s
++#ld: -Tinterleave.ld
++#objcopy: --interleave=8 --interleave-width=1 --byte=4 -O verilog
++
++@0+0
++04 
++@0+1
++10 
+diff --git a/ld/testsuite/ld-elf/interleave.ld b/ld/testsuite/ld-elf/interleave.ld
+new file mode 100644
+index 000000000000..6406166c8854
+--- /dev/null
++++ b/ld/testsuite/ld-elf/interleave.ld
+@@ -0,0 +1,10 @@
++MEMORY
++{
++  x0(xrw): ORIGIN = 0x0, LENGTH = 8
++  x1(xrw): ORIGIN = 0xC, LENGTH = 8
++}
++SECTIONS
++{
++  .a0 : { *(.text.a0) } > x0
++  .a1 : { *(.text.a1) } > x1
++}
+diff --git a/ld/testsuite/ld-elf/interleave.s b/ld/testsuite/ld-elf/interleave.s
+new file mode 100644
+index 000000000000..490aa59d5b51
+--- /dev/null
++++ b/ld/testsuite/ld-elf/interleave.s
+@@ -0,0 +1,18 @@
++	.section ".text.a0"
++	.byte 0x00
++	.byte 0x01
++	.byte 0x02
++	.byte 0x03
++	.byte 0x04
++	.byte 0x05
++	.byte 0x06
++	.byte 0x07
++	.section ".text.a1"
++	.byte 0x10
++	.byte 0x11
++	.byte 0x12
++	.byte 0x13
++	.byte 0x14
++	.byte 0x15
++	.byte 0x16
++	.byte 0x17
 diff --git a/ld/testsuite/ld-riscv-elf/c-lui.d b/ld/testsuite/ld-riscv-elf/c-lui.d
 new file mode 100644
 index 000000000000..7a9671163a9d
@@ -1705,12 +3214,50 @@ index 000000000000..4a23fdb95c56
 +	lui x1, 0
 +	lui x0, 1
 +	lui x2, 1
+diff --git a/ld/testsuite/ld-riscv-elf/gp-test-lib.sd b/ld/testsuite/ld-riscv-elf/gp-test-lib.sd
+new file mode 100644
+index 000000000000..c590e6c712c2
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/gp-test-lib.sd
+@@ -0,0 +1,9 @@
++Symbol table '.dynsym' contains [0-9]+ entries:
++ * Num: * Value * Size * Type * Bind * Vis * Ndx * Name
++#...
++Symbol table '.symtab' contains [0-9]+ entries:
++ * Num: * Value * Size * Type * Bind * Vis * Ndx * Name
++#failif
++#...
++ * [0-9a-f]+: * [0-9a-f]+ * 0 * NOTYPE * GLOBAL * DEFAULT .* __global_pointer\$
++#...
+diff --git a/ld/testsuite/ld-riscv-elf/gp-test.s b/ld/testsuite/ld-riscv-elf/gp-test.s
+new file mode 100644
+index 000000000000..a92c75e946b6
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/gp-test.s
+@@ -0,0 +1,6 @@
++	.data
++	.globl	blah
++	.type	blah, @object
++blah:
++	.dc.a	0
++	.size	blah, . - blah
+diff --git a/ld/testsuite/ld-riscv-elf/gp-test.sd b/ld/testsuite/ld-riscv-elf/gp-test.sd
+new file mode 100644
+index 000000000000..30c148255fe8
+--- /dev/null
++++ b/ld/testsuite/ld-riscv-elf/gp-test.sd
+@@ -0,0 +1,5 @@
++Symbol table '.symtab' contains [0-9]+ entries:
++ * Num: * Value * Size * Type * Bind * Vis * Ndx * Name
++#...
++ * [0-9a-f]+: * [0-9a-f]+ * 0 * NOTYPE * GLOBAL * DEFAULT .* __global_pointer\$
++#pass
 diff --git a/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp b/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp
 new file mode 100644
-index 000000000000..c219b181590e
+index 000000000000..ea09a165aeb3
 --- /dev/null
 +++ b/ld/testsuite/ld-riscv-elf/ld-riscv-elf.exp
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,45 @@
 +# Expect script for RISC-V ELF linker tests
 +#   Copyright (C) 2017 Free Software Foundation, Inc.
 +#
@@ -1732,17 +3279,48 @@ index 000000000000..c219b181590e
 +# MA 02110-1301, USA.
 +#
 +
-+if [istarget "riscv-*-*"] {
++if [istarget "riscv*-*-*"] {
 +    run_dump_test "c-lui"
++
++    set abis { rv32gc ilp32 elf32lriscv rv64gc lp64 elf64lriscv }
++    foreach { arch abi emul } $abis {
++	# This checks whether our linker scripts handle __global_pointer$
++	# correctly.  It should be defined in executables and PIE, but not
++	# in shared libraries.
++	set suff64 [string map {ilp32 "" lp64 -64} $abi]
++	run_ld_link_tests [list \
++			       [list "gp test ($abi shared library)" \
++				    "-m$emul -shared" "" \
++				    "-march=$arch -mabi=$abi -fpic" \
++				    { gp-test.s } \
++				    [list "readelf --syms gp-test-lib.sd"] \
++				    "gp-test-lib-${abi}.so"] \
++			       [list "gp test ($abi executable)" \
++				    "-m$emul" "" \
++				    "-march=$arch -mabi=$abi" \
++				    { gp-test.s } \
++				    [list "readelf --syms gp-test.sd"] \
++				    "gp-test-${abi}"]]
++    }
 +}
 diff --git a/opcodes/riscv-opc.c b/opcodes/riscv-opc.c
-index 9914c4474429..84cdea8fca8f 100644
+index 9914c4474429..094541cff0d7 100644
 --- a/opcodes/riscv-opc.c
 +++ b/opcodes/riscv-opc.c
-@@ -114,9 +114,25 @@ match_c_add (const struct riscv_opcode *op, insn_t insn)
+@@ -113,10 +113,46 @@ match_c_add (const struct riscv_opcode *op, insn_t insn)
+   return match_rd_nonzero (op, insn) && ((insn & MASK_CRS2) != 0);
  }
  
- static int
++/* We don't allow mv zero,X to become a c.mv hint, so we need a separate
++   matching function for this.  */
++
++static int
++match_c_add_with_hint (const struct riscv_opcode *op, insn_t insn)
++{
++  return match_opcode (op, insn) && ((insn & MASK_CRS2) != 0);
++}
++
++static int
 +match_c_addi16sp (const struct riscv_opcode *op, insn_t insn)
 +{
 +  return (match_opcode (op, insn)
@@ -1750,11 +3328,22 @@ index 9914c4474429..84cdea8fca8f 100644
 +	  && EXTRACT_RVC_ADDI16SP_IMM (insn) != 0);
 +}
 +
-+static int
+ static int
  match_c_lui (const struct riscv_opcode *op, insn_t insn)
  {
 -  return match_rd_nonzero (op, insn) && (((insn & MASK_RD) >> OP_SH_RD) != 2);
 +  return (match_rd_nonzero (op, insn)
++	  && (((insn & MASK_RD) >> OP_SH_RD) != 2)
++	  && EXTRACT_RVC_LUI_IMM (insn) != 0);
++}
++
++/* We don't allow lui zero,X to become a c.lui hint, so we need a separate
++   matching function for this.  */
++
++static int
++match_c_lui_with_hint (const struct riscv_opcode *op, insn_t insn)
++{
++  return (match_opcode (op, insn)
 +	  && (((insn & MASK_RD) >> OP_SH_RD) != 2)
 +	  && EXTRACT_RVC_LUI_IMM (insn) != 0);
 +}
@@ -1766,7 +3355,30 @@ index 9914c4474429..84cdea8fca8f 100644
  }
  
  const struct riscv_opcode riscv_opcodes[] =
-@@ -188,15 +204,15 @@ const struct riscv_opcode riscv_opcodes[] =
+@@ -155,19 +191,18 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"lui",       "C",   "d,Cu",  MATCH_C_LUI, MASK_C_LUI, match_c_lui, INSN_ALIAS },
+ {"lui",       "I",   "d,u",  MATCH_LUI, MASK_LUI, match_opcode, 0 },
+ {"li",        "C",   "d,Cv",  MATCH_C_LUI, MASK_C_LUI, match_c_lui, INSN_ALIAS },
+-{"li",        "C",   "d,Cj",  MATCH_C_LI, MASK_C_LI, match_rd_nonzero, INSN_ALIAS },
+-{"li",        "C",   "d,0",  MATCH_C_LI, MASK_C_LI | MASK_RVC_IMM, match_rd_nonzero, INSN_ALIAS },
++{"li",        "C",   "d,Co",  MATCH_C_LI, MASK_C_LI, match_rd_nonzero, INSN_ALIAS },
+ {"li",        "I",   "d,j",      MATCH_ADDI, MASK_ADDI | MASK_RS1, match_opcode, INSN_ALIAS }, /* addi */
+ {"li",        "I",   "d,I",  0,    (int) M_LI,  match_never, INSN_MACRO },
+ {"mv",        "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add, INSN_ALIAS },
+ {"mv",        "I",   "d,s",  MATCH_ADDI, MASK_ADDI | MASK_IMM, match_opcode, INSN_ALIAS },
+ {"move",      "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add, INSN_ALIAS },
+ {"move",      "I",   "d,s",  MATCH_ADDI, MASK_ADDI | MASK_IMM, match_opcode, INSN_ALIAS },
+-{"andi",      "C",   "Cs,Cw,Cj",  MATCH_C_ANDI, MASK_C_ANDI, match_opcode, INSN_ALIAS },
++{"andi",      "C",   "Cs,Cw,Co",  MATCH_C_ANDI, MASK_C_ANDI, match_opcode, INSN_ALIAS },
+ {"andi",      "I",   "d,s,j",  MATCH_ANDI, MASK_ANDI, match_opcode, 0 },
+ {"and",       "C",   "Cs,Cw,Ct",  MATCH_C_AND, MASK_C_AND, match_opcode, INSN_ALIAS },
+ {"and",       "C",   "Cs,Ct,Cw",  MATCH_C_AND, MASK_C_AND, match_opcode, INSN_ALIAS },
+-{"and",       "C",   "Cs,Cw,Cj",  MATCH_C_ANDI, MASK_C_ANDI, match_opcode, INSN_ALIAS },
++{"and",       "C",   "Cs,Cw,Co",  MATCH_C_ANDI, MASK_C_ANDI, match_opcode, INSN_ALIAS },
+ {"and",       "I",   "d,s,t",  MATCH_AND, MASK_AND, match_opcode, 0 },
+ {"and",       "I",   "d,s,j",  MATCH_ANDI, MASK_ANDI, match_opcode, INSN_ALIAS },
+ {"beqz",      "C",   "Cs,Cp",  MATCH_C_BEQZ, MASK_C_BEQZ, match_opcode, INSN_ALIAS },
+@@ -188,16 +223,18 @@ const struct riscv_opcode riscv_opcodes[] =
  {"bnez",      "C",   "Cs,Cp",  MATCH_C_BNEZ, MASK_C_BNEZ, match_opcode, INSN_ALIAS },
  {"bnez",      "I",   "s,p",  MATCH_BNE, MASK_BNE | MASK_RS2, match_opcode, INSN_ALIAS },
  {"bne",       "I",   "s,t,p",  MATCH_BNE, MASK_BNE, match_opcode, 0 },
@@ -1778,15 +3390,47 @@ index 9914c4474429..84cdea8fca8f 100644
  {"addi",      "I",   "d,s,j",  MATCH_ADDI, MASK_ADDI, match_opcode, 0 },
  {"add",       "C",   "d,CU,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add, INSN_ALIAS },
  {"add",       "C",   "d,CV,CU",  MATCH_C_ADD, MASK_C_ADD, match_c_add, INSN_ALIAS },
- {"add",       "C",   "d,CU,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_rd_nonzero, INSN_ALIAS },
+-{"add",       "C",   "d,CU,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_rd_nonzero, INSN_ALIAS },
 -{"add",       "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_opcode, INSN_ALIAS },
 -{"add",       "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_opcode, INSN_ALIAS },
++{"add",       "C",   "d,CU,Co",  MATCH_C_ADDI, MASK_C_ADDI, match_rd_nonzero, INSN_ALIAS },
 +{"add",       "C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_c_addi4spn, INSN_ALIAS },
 +{"add",       "C",   "Cc,Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_c_addi16sp, INSN_ALIAS },
  {"add",       "I",   "d,s,t",  MATCH_ADD, MASK_ADD, match_opcode, 0 },
++/* This is used for TLS, where the fourth arg is %tprel_add, to get a reloc
++   applied to an add instruction, for relaxation to use.  */
  {"add",       "I",   "d,s,t,0",MATCH_ADD, MASK_ADD, match_opcode, 0 },
  {"add",       "I",   "d,s,j",  MATCH_ADDI, MASK_ADDI, match_opcode, INSN_ALIAS },
-@@ -435,8 +451,13 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"la",        "I",   "d,A",  0,    (int) M_LA,  match_never, INSN_MACRO },
+@@ -289,11 +326,11 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"sd",        "64I", "t,A,s",  0, (int) M_SD, match_never, INSN_MACRO },
+ {"sext.w",    "64C", "d,CU",  MATCH_C_ADDIW, MASK_C_ADDIW | MASK_RVC_IMM, match_rd_nonzero, INSN_ALIAS },
+ {"sext.w",    "64I", "d,s",  MATCH_ADDIW, MASK_ADDIW | MASK_IMM, match_opcode, INSN_ALIAS },
+-{"addiw",     "64C", "d,CU,Cj",  MATCH_C_ADDIW, MASK_C_ADDIW, match_rd_nonzero, INSN_ALIAS },
++{"addiw",     "64C", "d,CU,Co",  MATCH_C_ADDIW, MASK_C_ADDIW, match_rd_nonzero, INSN_ALIAS },
+ {"addiw",     "64I", "d,s,j",  MATCH_ADDIW, MASK_ADDIW, match_opcode, 0 },
+ {"addw",      "64C", "Cs,Cw,Ct",  MATCH_C_ADDW, MASK_C_ADDW, match_opcode, INSN_ALIAS },
+ {"addw",      "64C", "Cs,Ct,Cw",  MATCH_C_ADDW, MASK_C_ADDW, match_opcode, INSN_ALIAS },
+-{"addw",      "64C", "d,CU,Cj",  MATCH_C_ADDIW, MASK_C_ADDIW, match_rd_nonzero, INSN_ALIAS },
++{"addw",      "64C", "d,CU,Co",  MATCH_C_ADDIW, MASK_C_ADDIW, match_rd_nonzero, INSN_ALIAS },
+ {"addw",      "64I", "d,s,t",  MATCH_ADDW, MASK_ADDW, match_opcode, 0 },
+ {"addw",      "64I", "d,s,j",  MATCH_ADDIW, MASK_ADDIW, match_opcode, INSN_ALIAS },
+ {"negw",      "64I", "d,t",  MATCH_SUBW, MASK_SUBW | MASK_RS1, match_opcode, INSN_ALIAS }, /* sub 0 */
+@@ -424,9 +461,13 @@ const struct riscv_opcode riscv_opcodes[] =
+ {"frrm",      "F",   "d",  MATCH_FRRM, MASK_FRRM, match_opcode, 0 },
+ {"fsrm",      "F",   "s",  MATCH_FSRM, MASK_FSRM | MASK_RD, match_opcode, 0 },
+ {"fsrm",      "F",   "d,s",  MATCH_FSRM, MASK_FSRM, match_opcode, 0 },
++{"fsrmi",     "F",   "d,Z",  MATCH_FSRMI, MASK_FSRMI, match_opcode, 0 },
++{"fsrmi",     "F",   "Z",  MATCH_FSRMI, MASK_FSRMI | MASK_RD, match_opcode, 0 },
+ {"frflags",   "F",   "d",  MATCH_FRFLAGS, MASK_FRFLAGS, match_opcode, 0 },
+ {"fsflags",   "F",   "s",  MATCH_FSFLAGS, MASK_FSFLAGS | MASK_RD, match_opcode, 0 },
+ {"fsflags",   "F",   "d,s",  MATCH_FSFLAGS, MASK_FSFLAGS, match_opcode, 0 },
++{"fsflagsi",  "F",   "d,Z",  MATCH_FSFLAGSI, MASK_FSFLAGSI, match_opcode, 0 },
++{"fsflagsi",  "F",   "Z",  MATCH_FSFLAGSI, MASK_FSFLAGSI | MASK_RD, match_opcode, 0 },
+ {"flw",       "32C", "D,Cm(Cc)",  MATCH_C_FLWSP, MASK_C_FLWSP, match_opcode, INSN_ALIAS },
+ {"flw",       "32C", "CD,Ck(Cs)",  MATCH_C_FLW, MASK_C_FLW, match_opcode, INSN_ALIAS },
+ {"flw",       "F",   "D,o(s)",  MATCH_FLW, MASK_FLW, match_opcode, 0 },
+@@ -435,8 +476,13 @@ const struct riscv_opcode riscv_opcodes[] =
  {"fsw",       "32C", "CD,Ck(Cs)",  MATCH_C_FSW, MASK_C_FSW, match_opcode, INSN_ALIAS },
  {"fsw",       "F",   "T,q(s)",  MATCH_FSW, MASK_FSW, match_opcode, 0 },
  {"fsw",       "F",   "T,A,s",  0, (int) M_FSW, match_never, INSN_MACRO },
@@ -1800,22 +3444,36 @@ index 9914c4474429..84cdea8fca8f 100644
  {"fmv.s",     "F",   "D,U",  MATCH_FSGNJ_S, MASK_FSGNJ_S, match_rs1_eq_rs2, INSN_ALIAS },
  {"fneg.s",    "F",   "D,U",  MATCH_FSGNJN_S, MASK_FSGNJN_S, match_rs1_eq_rs2, INSN_ALIAS },
  {"fabs.s",    "F",   "D,U",  MATCH_FSGNJX_S, MASK_FSGNJX_S, match_rs1_eq_rs2, INSN_ALIAS },
-@@ -619,12 +640,12 @@ const struct riscv_opcode riscv_opcodes[] =
+@@ -619,19 +665,20 @@ const struct riscv_opcode riscv_opcodes[] =
  {"c.lw",      "C",   "Ct,Ck(Cs)",  MATCH_C_LW, MASK_C_LW, match_opcode, 0 },
  {"c.swsp",    "C",   "CV,CM(Cc)",  MATCH_C_SWSP, MASK_C_SWSP, match_opcode, 0 },
  {"c.sw",      "C",   "Ct,Ck(Cs)",  MATCH_C_SW, MASK_C_SW, match_opcode, 0 },
 -{"c.nop",     "C",   "",  MATCH_C_ADDI, 0xffff, match_opcode, 0 },
-+{"c.nop",     "C",   "",  MATCH_C_ADDI, 0xffff, match_opcode, INSN_ALIAS },
- {"c.mv",      "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add, 0 },
- {"c.lui",     "C",   "d,Cu",  MATCH_C_LUI, MASK_C_LUI, match_c_lui, 0 },
- {"c.li",      "C",   "d,Co",  MATCH_C_LI, MASK_C_LI, match_rd_nonzero, 0 },
+-{"c.mv",      "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add, 0 },
+-{"c.lui",     "C",   "d,Cu",  MATCH_C_LUI, MASK_C_LUI, match_c_lui, 0 },
+-{"c.li",      "C",   "d,Co",  MATCH_C_LI, MASK_C_LI, match_rd_nonzero, 0 },
 -{"c.addi4spn","C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_opcode, 0 },
 -{"c.addi16sp","C",   "Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_opcode, 0 },
+-{"c.addi",    "C",   "d,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_opcode, 0 },
+-{"c.add",     "C",   "d,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add, 0 },
++{"c.nop",     "C",   "",  MATCH_C_ADDI, 0xffff, match_opcode, INSN_ALIAS },
++{"c.nop",     "C",   "Cj",  MATCH_C_ADDI, MASK_C_ADDI | MASK_RD, match_opcode, INSN_ALIAS },
++{"c.mv",      "C",   "d,CV",  MATCH_C_MV, MASK_C_MV, match_c_add_with_hint, 0 },
++{"c.lui",     "C",   "d,Cu",  MATCH_C_LUI, MASK_C_LUI, match_c_lui_with_hint, 0 },
++{"c.li",      "C",   "d,Co",  MATCH_C_LI, MASK_C_LI, match_opcode, 0 },
 +{"c.addi4spn","C",   "Ct,Cc,CK", MATCH_C_ADDI4SPN, MASK_C_ADDI4SPN, match_c_addi4spn, 0 },
 +{"c.addi16sp","C",   "Cc,CL", MATCH_C_ADDI16SP, MASK_C_ADDI16SP, match_c_addi16sp, 0 },
- {"c.addi",    "C",   "d,Cj",  MATCH_C_ADDI, MASK_C_ADDI, match_opcode, 0 },
- {"c.add",     "C",   "d,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add, 0 },
++{"c.addi",    "C",   "d,Co",  MATCH_C_ADDI, MASK_C_ADDI, match_opcode, 0 },
++{"c.add",     "C",   "d,CV",  MATCH_C_ADD, MASK_C_ADD, match_c_add_with_hint, 0 },
  {"c.sub",     "C",   "Cs,Ct",  MATCH_C_SUB, MASK_C_SUB, match_opcode, 0 },
+ {"c.and",     "C",   "Cs,Ct",  MATCH_C_AND, MASK_C_AND, match_opcode, 0 },
+ {"c.or",      "C",   "Cs,Ct",  MATCH_C_OR, MASK_C_OR, match_opcode, 0 },
+ {"c.xor",     "C",   "Cs,Ct",  MATCH_C_XOR, MASK_C_XOR, match_opcode, 0 },
+-{"c.slli",    "C",   "d,C>",  MATCH_C_SLLI, MASK_C_SLLI, match_rd_nonzero, 0 },
++{"c.slli",    "C",   "d,C>",  MATCH_C_SLLI, MASK_C_SLLI, match_opcode, 0 },
+ {"c.srli",    "C",   "Cs,C>",  MATCH_C_SRLI, MASK_C_SRLI, match_opcode, 0 },
+ {"c.srai",    "C",   "Cs,C>",  MATCH_C_SRAI, MASK_C_SRAI, match_opcode, 0 },
+ {"c.andi",    "C",   "Cs,Co",  MATCH_C_ANDI, MASK_C_ANDI, match_opcode, 0 },
 diff --git a/sim/riscv/ChangeLog b/sim/riscv/ChangeLog
 new file mode 100644
 index 000000000000..a960da8422ec
