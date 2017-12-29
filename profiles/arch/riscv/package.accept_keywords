@@ -67,7 +67,6 @@ sys-apps/man-pages-posix amd64
 sys-apps/net-tools amd64
 sys-apps/openrc amd64
 sys-apps/portage amd64
-sys-apps/sandbox amd64
 sys-apps/sed amd64
 sys-apps/shadow amd64
 sys-apps/sysvinit amd64

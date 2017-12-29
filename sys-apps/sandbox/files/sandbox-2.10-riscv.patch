@@ -1,0 +1,34 @@
+Binary files sandbox-2.10.orig/libsandbox/trace/linux/.x86_64.c.swp and sandbox-2.10/libsandbox/trace/linux/.x86_64.c.swp differ
+diff -Nur sandbox-2.10.orig/libsandbox/trace/linux/arch.c sandbox-2.10/libsandbox/trace/linux/arch.c
+--- sandbox-2.10.orig/libsandbox/trace/linux/arch.c	2017-12-29 12:58:02.828544858 -0800
++++ sandbox-2.10/libsandbox/trace/linux/arch.c	2017-12-29 13:04:09.724343845 -0800
+@@ -13,6 +13,8 @@
+ # include "sparc.c"
+ #elif defined(__x86_64__)
+ # include "x86_64.c"
++#elif defined(__riscv)
++# include "riscv.c"
+ #else
+ # define SB_NO_TRACE_ARCH
+ #endif
+diff -Nur sandbox-2.10.orig/libsandbox/trace/linux/riscv.c sandbox-2.10/libsandbox/trace/linux/riscv.c
+--- sandbox-2.10.orig/libsandbox/trace/linux/riscv.c	1969-12-31 16:00:00.000000000 -0800
++++ sandbox-2.10/libsandbox/trace/linux/riscv.c	2017-12-29 13:10:59.697339805 -0800
+@@ -0,0 +1,17 @@
++#define trace_reg_sysnum a7
++#define trace_reg_ret a0
++
++static unsigned long trace_arg(void *vregs, int num)
++{
++	trace_regs *regs = vregs;
++	switch (num) {
++		case 1: return regs->a0;
++		case 2: return regs->a1;
++		case 3: return regs->a2;
++		case 4: return regs->a3;
++		case 5: return regs->a4;
++		case 6: return regs->a5;
++		case 7: return regs->a6;
++		default: return -1;
++	}
++}
