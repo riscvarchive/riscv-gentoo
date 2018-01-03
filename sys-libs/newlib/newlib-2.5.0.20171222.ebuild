@@ -5,7 +5,7 @@ EAPI="6"
 
 inherit flag-o-matic toolchain-funcs
 
-SRCC_URI="ftp://sourceware.org/pub/newlib/${P}.tar.gz"
+SRC_URI="ftp://sourceware.org/pub/newlib/${P}.tar.gz"
 KEYWORDS="riscv"
 
 export CBUILD=${CBUILD:-${CHOST}}
@@ -25,16 +25,6 @@ IUSE="nls threads unicode crosscompile_opts_headers-only"
 RESTRICT="strip"
 
 NEWLIBBUILD="${WORKDIR}/build"
-
-pkg_setup() {
-	# Reject newlib-on-glibc type installs
-	if [[ ${CTARGET} == ${CHOST} ]] ; then
-		case ${CHOST} in
-			*-newlib|*-elf) ;;
-			*) die "Use sys-devel/crossdev to build a newlib toolchain" ;;
-		esac
-	fi
-}
 
 src_configure() {
 	# we should fix this ...
