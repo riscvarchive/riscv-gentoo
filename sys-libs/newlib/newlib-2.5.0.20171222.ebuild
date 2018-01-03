@@ -26,6 +26,11 @@ RESTRICT="strip"
 
 NEWLIBBUILD="${WORKDIR}/build"
 
+src_prepare() {
+    epatch "${FILESDIR}/${P}-riscv.patch"
+	default
+}
+
 src_configure() {
 	# we should fix this ...
 	unset LDFLAGS
