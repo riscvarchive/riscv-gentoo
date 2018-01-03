@@ -5,15 +5,8 @@ EAPI="6"
 
 inherit flag-o-matic toolchain-funcs
 
-if [[ ${PV} == "9999" ]] ; then
-	EGIT_REPO_URI="git://sourceware.org/git/newlib-cygwin.git"
-	inherit git-r3
-else
-	SRC_URI="ftp://sourceware.org/pub/newlib/${P}.tar.gz"
-	if [[ ${PV} != *.201[5-9]???? ]] ; then
-		KEYWORDS="riscv"
-	fi
-fi
+SRCC_URI="ftp://sourceware.org/pub/newlib/${P}.tar.gz"
+KEYWORDS="riscv"
 
 export CBUILD=${CBUILD:-${CHOST}}
 export CTARGET=${CTARGET:-${CHOST}}
