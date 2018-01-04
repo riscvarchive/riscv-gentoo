@@ -1,0 +1,32 @@
+From 0d0b4653e44f807802ef1fa9647c7395d6625609 Mon Sep 17 00:00:00 2001
+From: Dennis Schridde <devurandom@users.noreply.github.com>
+Date: Wed, 3 Jan 2018 23:41:53 +0100
+Subject: [PATCH] Fix parse_repo_config with regards to repository priority
+
+Before this patch, the repository config would be inserted into a more or less
+ place for the respective priority, resulting in a non-contiguous array, which
+ would no longer be fully enumerated by an awk for loop.  Hence the config of
+ repositories with the same priority would be omitted for all but the first
+ few entries.
+
+Signed-off-by: Dennis Schridde <devurandom@gmx.net>
+---
+ crossdev | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crossdev b/crossdev
+index f5f4989..07563a7 100755
+--- a/crossdev
++++ b/crossdev
+@@ -394,7 +394,7 @@ parse_repo_config() {
+ 	local flat_config=$(echo "${repo_config}" | gawk '
+ 		function push(arr, idx, ele) {
+ 			if (idx in arr)
+-				arr[idx][length(arr) + 1] = ele
++				arr[idx][length(arr[idx]) + 1] = ele
+ 			else
+ 				arr[idx][0] = ele
+ 		}
+-- 
+2.15.1
+
