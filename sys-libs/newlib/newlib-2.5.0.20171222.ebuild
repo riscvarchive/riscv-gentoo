@@ -57,7 +57,7 @@ src_configure() {
 }
 
 src_compile() {
-	emake -C "${NEWLIBBUILD}"
+	emake -C "${NEWLIBBUILD}" CFLAGS_FOR_TARGET="${CFLAGS} -U_FORTIFY_SOURCE"
 }
 
 src_install() {
