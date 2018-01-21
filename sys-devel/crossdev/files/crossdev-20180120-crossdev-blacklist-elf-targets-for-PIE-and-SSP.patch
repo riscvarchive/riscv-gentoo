@@ -1,0 +1,34 @@
+From 88fc247c93573a7f89e3f484d3d8266c86f23757 Mon Sep 17 00:00:00 2001
+From: Dennis Schridde <devurandom@gmx.net>
+Date: Sun, 21 Jan 2018 20:29:00 +0100
+Subject: [PATCH] crossdev: blacklist *-*-elf* targets for PIE and SSP
+
+---
+ crossdev | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/crossdev b/crossdev
+index 8f03803..c0cb85f 100755
+--- a/crossdev
++++ b/crossdev
+@@ -395,6 +395,8 @@ parse_target() {
+ 		avr*|mmix*) pie_support=no;;
+ 		# [2.] mingw32 startup code is broken: bug #644930
+ 		mingw32|i686-w64-mingw32) pie_support=no;;
++		# [3.] bare-metal never supports PIE
++		*-*-elf*) pie_support=no;;
+ 	esac
+ 	if [[ $pie_support = "no" ]]; then
+ 		# pie is >=gcc-6, nopie is <gcc-6
+@@ -409,6 +411,8 @@ parse_target() {
+ 		# [1.]: no -fstack-protector flag support:
+ 		#       check as '$CC -fstack-protector -c -x c - </dev/null'
+ 		alpha*|avr*|hppa*|ia64*|mmix*|nios2*) ssp_support=no;;
++		# [2.] bare-metal never supports Stack Protector
++		*-*-elf*) pie_support=no;;
+ 	esac
+ 	if [[ $ssp_support = "no" ]]; then
+ 		# ssp is >=gcc-6, nossp is <gcc-6
+-- 
+2.16.0
+

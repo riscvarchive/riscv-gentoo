@@ -26,7 +26,10 @@ RDEPEND=">=sys-apps/portage-2.1
 	!sys-devel/crossdev-wrappers"
 DEPEND="app-arch/xz-utils"
 
-PATCHES=( "${FILESDIR}/${P}-riscv.patch" )
+PATCHES=(
+	"${FILESDIR}/${PN}-20171230-riscv.patch"
+	"${FILESDIR}/${P}"-crossdev-blacklist-elf-targets-for-PIE-and-SSP.patch
+)
 
 src_install() {
 	default
