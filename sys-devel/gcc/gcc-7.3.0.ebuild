@@ -1,15 +1,14 @@
-# Copyright 1999-2017 Gentoo Foundation
+# Copyright 1999-2018 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI="5"
 
-PATCH_VER="1.1"
-PATCH_GCC_VER="7.1.0"
+PATCH_VER="1.0"
 #UCLIBC_VER="1.0"
 
 inherit toolchain
 
-KEYWORDS="riscv"
+KEYWORDS="~riscv"
 
 RDEPEND=""
 DEPEND="${RDEPEND}
@@ -21,6 +20,5 @@ if [[ ${CATEGORY} != cross-* ]] ; then
 fi
 
 src_prepare() {
-    epatch "${FILESDIR}/${P}-riscv.patch"
 	toolchain_src_prepare
 }
