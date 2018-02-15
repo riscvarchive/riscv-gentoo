@@ -1,4 +1,4 @@
-# Copyright 1999-2017 Gentoo Foundation
+# Copyright 1999-2018 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=6
@@ -26,7 +26,7 @@ RELEASE_VER=${PV}
 
 GCC_BOOTSTRAP_VER="7.2.0"
 
-IUSE="audit caps debug gd hardened multilib nscd selinux systemtap profile suid vanilla crosscompile_opts_headers-only"
+IUSE="audit caps debug gd hardened headers-only multilib nscd selinux systemtap profile suid vanilla"
 
 S="${WORKDIR}/glibc-2.26"
 
@@ -84,7 +84,7 @@ RDEPEND="${COMMON_DEPEND}
 "
 
 if [[ ${CATEGORY} == cross-* ]] ; then
-	DEPEND+=" !crosscompile_opts_headers-only? (
+	DEPEND+=" !headers-only? (
 		>=${CATEGORY}/binutils-2.24
 		>=${CATEGORY}/gcc-4.9
 	)"
