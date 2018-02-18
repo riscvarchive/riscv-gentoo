@@ -127,4 +127,5 @@ media-libs/opencv amd64
 # These have RISC-V ports, but they're not yet keyworded as riscv yet because
 # we don't have any upstream support.
 ~sys-devel/gcc-7.2.0 ~amd64
->=sys-devel/gcc-7.2.0 amd64
+~sys-devel/gcc-7.3.0 ~amd64
+>=sys-devel/gcc-7.3.0 amd64
