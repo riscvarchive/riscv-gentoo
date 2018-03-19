@@ -203,6 +203,8 @@ pkg_pretend() {
 }
 
 src_prepare() {
+	local PATCHES=( "${FILESDIR}/${P}.patch" )
+
 	if just_headers ; then
 		if [[ -e ports/sysdeps/mips/preconfigure ]] ; then
 			# mips peeps like to screw with us.  if building headers,
@@ -241,8 +243,6 @@ src_prepare() {
 				debug/Makefile || die
 		fi
 	fi
-
-	epatch "${FILESDIR}/${P}.patch"
 }
 
 glibc_do_configure() {
