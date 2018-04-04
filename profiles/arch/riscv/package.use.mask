@@ -1,2 +1,0 @@
-# libpcre doesn't support jit on RISC-V
-dev-libs/libpcre jit
